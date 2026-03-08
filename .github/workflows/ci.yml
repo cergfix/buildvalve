@@ -1,0 +1,886 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ─── Server ───────────────────────────────────────────────────────────────
+  server:
+    name: Server — type-check, test, build
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: server
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npx tsc --noEmit
+
+      - name: Run tests
+        run: npm test -- --run
+
+      - name: Build
+        run: npm run build
+
+  # ─── Client ───────────────────────────────────────────────────────────────
+  client:
+    name: Client — lint, type-check, build
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: client
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type-check & build
+        run: npm run build
+
+  # ─── Docker smoke test ───────────────────────────────────────────────────
+  docker-smoke-test:
+    name: Docker — build, API & UI smoke tests
+    runs-on: ubuntu-latest
+    needs: [server, client]
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          tags: buildvalve:smoke-test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Write test config
+        run: |
+          cat > /tmp/config.yml <<'YAML'
+          public_url: http://localhost:3000
+          ci_providers:
+            - name: mock-gitlab
+              type: gitlab
+              url: https://gitlab.example.com
+              token: glpat-test
+              mock: true
+            - name: mock-github
+              type: github-actions
+              github_token: ghp-test
+              mock: true
+            - name: mock-circleci
+              type: circleci
+              circleci_token: cc-test
+              mock: true
+          admins:
+            - test@test.com
+            - alice@company.com
+          auth:
+            providers:
+              - type: mock
+                enabled: true
+                label: "Mock Login"
+                mock_user:
+                  email: test@test.com
+                  groups: [test]
+              - type: local
+                enabled: true
+                label: "Local Login"
+                users:
+                  # password = "secret123"
+                  - email: alice@company.com
+                    password_sha256: fcf730b6d95236ecd3c9fc2d92d7b6b2bb061514961aec041d6c7a7192f592e4
+                    groups: [devops]
+                  # password = "pass456"
+                  - email: noaccess@company.com
+                    password_sha256: 1d4598d1949b47f7f211134b639ec32238ce73086a83c2f745713b3f12f817e5
+          session:
+            secret: smoke-test-secret-1234
+            max_age: 3600
+          projects:
+            - id: "1"
+              name: Test Project (GitLab)
+              description: A GitLab test project
+              provider: mock-gitlab
+              external_id: "1"
+              pipelines:
+                - name: Deploy
+                  ref: main
+                  variables: []
+                - name: Deploy Prod
+                  ref: main
+                  variables: []
+                  allowed_groups: [devops]
+            - id: frontend
+              name: Frontend App (GitHub)
+              description: A GitHub Actions project
+              provider: mock-github
+              external_id: myorg/frontend
+              pipelines:
+                - name: Build & Deploy
+                  ref: main
+                  workflow_id: deploy.yml
+                  variables:
+                    - key: ENVIRONMENT
+                      value: staging
+                      locked: false
+                      description: Target environment
+                      type: select
+                      options:
+                        - staging
+                        - production
+                    - key: DRY_RUN
+                      value: "true"
+                      locked: false
+                      description: Simulate without applying
+                      type: radio
+                      options:
+                        - "true"
+                        - "false"
+                    # Conditional variable — only shown when ENVIRONMENT=production.
+                    # Used by the Playwright "needs" e2e tests.
+                    - key: NOTIFY_STAKEHOLDERS
+                      value: "false"
+                      locked: false
+                      description: Email the on-call list when the rollout completes
+                      type: radio
+                      options:
+                        - "true"
+                        - "false"
+                      needs:
+                        ENVIRONMENT: production
+            - id: api-service
+              name: API Service (CircleCI)
+              description: A CircleCI project
+              provider: mock-circleci
+              external_id: gh/myorg/api
+              pipelines:
+                - name: Release
+                  ref: main
+                  variables: []
+          permissions:
+            - users: [test@test.com, alice@company.com]
+              projects: ["1", frontend, api-service]
+          external_links:
+            - label: Grafana
+              url: https://grafana.example.com
+            - label: Wiki
+              url: https://wiki.example.com
+          YAML
+
+      - name: Start container
+        run: |
+          docker run -d --name smoke \
+            -v /tmp/config.yml:/app/config/config.yml:ro \
+            -e NODE_ENV=test \
+            -p 3000:3000 \
+            buildvalve:smoke-test
+
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3000/api/health > /dev/null 2>&1; then
+              echo "Server is ready"
+              break
+            fi
+            if [ "$i" = "30" ]; then
+              echo "Server failed to start"
+              docker logs smoke
+              exit 1
+            fi
+            sleep 1
+          done
+
+      # ── API smoke tests (curl) ──────────────────────────────────────────
+      - name: "API: public endpoints"
+        run: |
+          echo "--- GET /api/health ---"
+          HEALTH=$(curl -sf http://localhost:3000/api/health)
+          echo "$HEALTH"
+          echo "$HEALTH" | grep -q '"status":"ok"'
+          echo "$HEALTH" | grep -q '"mock"'
+
+          echo "--- GET /api/auth/providers ---"
+          PROVIDERS=$(curl -sf http://localhost:3000/api/auth/providers)
+          echo "$PROVIDERS"
+          echo "$PROVIDERS" | grep -q '"type":"mock"'
+          echo "$PROVIDERS" | grep -q '"label":"Mock Login"'
+          echo "$PROVIDERS" | grep -q '"/api/auth/mock/login"'
+          echo "$PROVIDERS" | grep -q '"buttonLabel":"Sign in with Mock Login"'
+          echo "$PROVIDERS" | grep -q '"type":"local"'
+          echo "$PROVIDERS" | grep -q '"form":"credentials"'
+
+      - name: "API: unauthenticated requests return 401"
+        run: |
+          for ENDPOINT in /api/auth/me /api/pipelines /api/pipelines/recent /api/admin/config; do
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:3000$ENDPOINT")
+            if [ "$CODE" != "401" ]; then
+              echo "FAIL: $ENDPOINT returned $CODE, expected 401"
+              exit 1
+            fi
+            echo "OK: $ENDPOINT → 401"
+          done
+
+      - name: "API: mock login flow"
+        run: |
+          COOKIE_JAR=$(mktemp)
+
+          echo "--- GET /api/auth/mock/login (follow redirect) ---"
+          LOGIN_CODE=$(curl -s -c "$COOKIE_JAR" -L -o /dev/null -w '%{http_code}' http://localhost:3000/api/auth/mock/login)
+          echo "Login response: $LOGIN_CODE"
+          [ "$LOGIN_CODE" = "200" ] || { echo "FAIL: login returned $LOGIN_CODE"; exit 1; }
+
+          echo "--- GET /api/auth/me ---"
+          ME=$(curl -sf -b "$COOKIE_JAR" http://localhost:3000/api/auth/me)
+          echo "$ME"
+          echo "$ME" | grep -q '"email":"test@test.com"'
+          echo "$ME" | grep -q '"provider":"mock"'
+
+          echo "$COOKIE_JAR" > /tmp/cookie_jar_path
+          cp "$COOKIE_JAR" /tmp/cookies.txt
+
+      - name: "API: authenticated pipeline endpoints (multi-provider)"
+        run: |
+          CJ=/tmp/cookies.txt
+
+          echo "--- GET /api/pipelines ---"
+          PIPELINES=$(curl -sf -b "$CJ" http://localhost:3000/api/pipelines)
+          echo "$PIPELINES"
+          echo "$PIPELINES" | grep -q '"Test Project (GitLab)"'
+          echo "$PIPELINES" | grep -q '"Frontend App (GitHub)"'
+          echo "$PIPELINES" | grep -q '"API Service (CircleCI)"'
+          echo "$PIPELINES" | grep -q '"Deploy"'
+          echo "$PIPELINES" | grep -q '"Build & Deploy"'
+          echo "$PIPELINES" | grep -q '"Release"'
+
+          echo "--- GET /api/pipelines/recent ---"
+          RECENT=$(curl -sf -b "$CJ" http://localhost:3000/api/pipelines/recent)
+          echo "$RECENT"
+          echo "$RECENT" | grep -q '"projectId":"1"'
+          echo "$RECENT" | grep -q '"projectId":"frontend"'
+          echo "$RECENT" | grep -q '"projectId":"api-service"'
+
+          echo "--- POST /api/pipelines/trigger (GitLab project) ---"
+          TRIGGER_GL=$(curl -sf -b "$CJ" -X POST http://localhost:3000/api/pipelines/trigger \
+            -H 'Content-Type: application/json' \
+            -d '{"projectId":"1","pipelineName":"Deploy","variables":{}}')
+          echo "$TRIGGER_GL"
+          echo "$TRIGGER_GL" | grep -q '"id"'
+          echo "$TRIGGER_GL" | grep -q '"provider":"gitlab"'
+          GL_PID=$(echo "$TRIGGER_GL" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+          echo "Triggered GitLab pipeline ID: $GL_PID"
+
+          echo "--- POST /api/pipelines/trigger (GitHub project with select/radio) ---"
+          TRIGGER_GH=$(curl -sf -b "$CJ" -X POST http://localhost:3000/api/pipelines/trigger \
+            -H 'Content-Type: application/json' \
+            -d '{"projectId":"frontend","pipelineName":"Build & Deploy","variables":{"ENVIRONMENT":"staging","DRY_RUN":"true"}}')
+          echo "$TRIGGER_GH"
+          echo "$TRIGGER_GH" | grep -q '"provider":"github-actions"'
+          echo "OK: trigger with valid select+radio values succeeded"
+
+          echo "--- Trigger with invalid select option returns 400 ---"
+          CODE=$(curl -s -b "$CJ" -o /dev/null -w '%{http_code}' -X POST http://localhost:3000/api/pipelines/trigger \
+            -H 'Content-Type: application/json' \
+            -d '{"projectId":"frontend","pipelineName":"Build & Deploy","variables":{"ENVIRONMENT":"invalid-env","DRY_RUN":"true"}}')
+          [ "$CODE" = "400" ] || { echo "FAIL: expected 400, got $CODE"; exit 1; }
+          echo "OK: invalid select option → 400"
+
+          echo "--- Trigger with invalid radio option returns 400 ---"
+          CODE=$(curl -s -b "$CJ" -o /dev/null -w '%{http_code}' -X POST http://localhost:3000/api/pipelines/trigger \
+            -H 'Content-Type: application/json' \
+            -d '{"projectId":"frontend","pipelineName":"Build & Deploy","variables":{"ENVIRONMENT":"staging","DRY_RUN":"maybe"}}')
+          [ "$CODE" = "400" ] || { echo "FAIL: expected 400, got $CODE"; exit 1; }
+          echo "OK: invalid radio option → 400"
+
+          echo "--- POST /api/pipelines/trigger (CircleCI project) ---"
+          TRIGGER_CC=$(curl -sf -b "$CJ" -X POST http://localhost:3000/api/pipelines/trigger \
+            -H 'Content-Type: application/json' \
+            -d '{"projectId":"api-service","pipelineName":"Release","variables":{}}')
+          echo "$TRIGGER_CC"
+          echo "$TRIGGER_CC" | grep -q '"provider":"circleci"'
+
+          echo "--- GET /api/pipelines/1/history?ref=main ---"
+          HISTORY=$(curl -sf -b "$CJ" "http://localhost:3000/api/pipelines/1/history?ref=main")
+          echo "$HISTORY"
+
+          echo "--- GET /api/pipelines/1/$GL_PID ---"
+          DETAIL=$(curl -sf -b "$CJ" "http://localhost:3000/api/pipelines/1/$GL_PID")
+          echo "$DETAIL"
+          echo "$DETAIL" | grep -q '"pipeline"'
+          echo "$DETAIL" | grep -q '"jobs"'
+
+          # Extract a job ID for trace test
+          JOB_ID=$(echo "$DETAIL" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['jobs'][0]['id'])" 2>/dev/null || true)
+          if [ -n "$JOB_ID" ]; then
+            echo "--- GET /api/pipelines/1/jobs/$JOB_ID/trace ---"
+            TRACE_CODE=$(curl -s -b "$CJ" -o /dev/null -w '%{http_code}' "http://localhost:3000/api/pipelines/1/jobs/$JOB_ID/trace")
+            echo "Trace response: $TRACE_CODE"
+            [ "$TRACE_CODE" = "200" ] || [ "$TRACE_CODE" = "404" ] || { echo "FAIL: unexpected $TRACE_CODE"; exit 1; }
+          fi
+
+      - name: "API: admin endpoint"
+        run: |
+          CJ=/tmp/cookies.txt
+
+          echo "--- GET /api/admin/config ---"
+          ADMIN=$(curl -sf -b "$CJ" http://localhost:3000/api/admin/config)
+          echo "$ADMIN"
+          echo "$ADMIN" | grep -q '"REDACTED"'
+          echo "$ADMIN" | grep -q '"projects"'
+          echo "$ADMIN" | grep -q '"ci_providers"'
+
+      - name: "API: POST /api/auth/logout"
+        run: |
+          CJ=/tmp/cookies.txt
+
+          echo "--- POST /api/auth/logout ---"
+          LOGOUT=$(curl -sf -b "$CJ" -X POST http://localhost:3000/api/auth/logout)
+          echo "$LOGOUT"
+          echo "$LOGOUT" | grep -q '"ok":true'
+
+          echo "--- Verify session is invalidated ---"
+          CODE=$(curl -s -b "$CJ" -o /dev/null -w '%{http_code}' http://localhost:3000/api/auth/me)
+          [ "$CODE" = "401" ] || { echo "FAIL: /api/auth/me returned $CODE after logout"; exit 1; }
+          echo "OK: session invalidated after logout"
+
+      - name: "API: local login flow"
+        run: |
+          echo "--- POST /api/auth/local/login with valid credentials ---"
+          LOCAL_CJ=$(mktemp)
+          LOGIN=$(curl -s -c "$LOCAL_CJ" -w '\n%{http_code}' -X POST http://localhost:3000/api/auth/local/login \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"alice@company.com","password":"secret123"}')
+          CODE=$(echo "$LOGIN" | tail -1)
+          BODY=$(echo "$LOGIN" | head -1)
+          echo "Login response: $CODE $BODY"
+          [ "$CODE" = "200" ] || { echo "FAIL: local login returned $CODE"; exit 1; }
+          echo "$BODY" | grep -q '"ok":true'
+
+          echo "--- Verify session is valid after local login ---"
+          ME=$(curl -sf -b "$LOCAL_CJ" http://localhost:3000/api/auth/me)
+          echo "$ME"
+          echo "$ME" | grep -q '"email":"alice@company.com"'
+          echo "$ME" | grep -q '"provider":"local"'
+
+          echo "--- Verify external_links in /api/auth/me ---"
+          echo "$ME" | grep -q '"externalLinks"'
+          echo "$ME" | grep -q '"Grafana"'
+          echo "$ME" | grep -q '"Wiki"'
+
+          echo "--- POST /api/auth/local/login with wrong password ---"
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:3000/api/auth/local/login \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"alice@company.com","password":"wrong"}')
+          [ "$CODE" = "401" ] || { echo "FAIL: expected 401, got $CODE"; exit 1; }
+          echo "OK: wrong password → 401"
+
+          echo "--- POST /api/auth/local/login with missing fields ---"
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:3000/api/auth/local/login \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"alice@company.com"}')
+          [ "$CODE" = "400" ] || { echo "FAIL: expected 400, got $CODE"; exit 1; }
+          echo "OK: missing password → 400"
+
+          echo "--- POST /api/auth/local/login for user without permissions ---"
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:3000/api/auth/local/login \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"noaccess@company.com","password":"pass456"}')
+          [ "$CODE" = "403" ] || { echo "FAIL: expected 403, got $CODE"; exit 1; }
+          echo "OK: no permissions → 403"
+
+          rm -f "$LOCAL_CJ"
+
+      - name: "API: authorization checks"
+        run: |
+          # Login fresh for auth tests
+          CJ=$(mktemp)
+          curl -s -c "$CJ" -L -o /dev/null http://localhost:3000/api/auth/mock/login
+
+          echo "--- Trigger for unauthorized project returns 403 ---"
+          CODE=$(curl -s -b "$CJ" -o /dev/null -w '%{http_code}' -X POST http://localhost:3000/api/pipelines/trigger \
+            -H 'Content-Type: application/json' \
+            -d '{"projectId":"999","pipelineName":"Deploy","variables":{}}')
+          [ "$CODE" = "403" ] || { echo "FAIL: expected 403, got $CODE"; exit 1; }
+          echo "OK: unauthorized project → 403"
+
+          echo "--- Trigger with missing fields returns 400 ---"
+          CODE=$(curl -s -b "$CJ" -o /dev/null -w '%{http_code}' -X POST http://localhost:3000/api/pipelines/trigger \
+            -H 'Content-Type: application/json' \
+            -d '{}')
+          [ "$CODE" = "400" ] || { echo "FAIL: expected 400, got $CODE"; exit 1; }
+          echo "OK: missing fields → 400"
+
+          echo "--- Nonexistent pipeline returns 404 ---"
+          CODE=$(curl -s -b "$CJ" -o /dev/null -w '%{http_code}' -X POST http://localhost:3000/api/pipelines/trigger \
+            -H 'Content-Type: application/json' \
+            -d '{"projectId":"1","pipelineName":"NonExistent","variables":{}}')
+          [ "$CODE" = "404" ] || { echo "FAIL: expected 404, got $CODE"; exit 1; }
+          echo "OK: nonexistent pipeline → 404"
+
+          rm -f "$CJ"
+
+      - name: "API: per-pipeline permissions"
+        run: |
+          # Mock user (test@test.com) is in group [test] — NOT in [devops]
+          # So "Deploy Prod" (allowed_groups: [devops]) should be hidden
+          CJ=$(mktemp)
+          curl -s -c "$CJ" -L -o /dev/null http://localhost:3000/api/auth/mock/login
+
+          echo "--- Mock user should NOT see Deploy Prod (devops-only) ---"
+          PIPELINES=$(curl -sf -b "$CJ" http://localhost:3000/api/pipelines)
+          echo "$PIPELINES"
+          echo "$PIPELINES" | grep -q '"Deploy"'
+          echo "OK: Deploy (unrestricted) is visible"
+          if echo "$PIPELINES" | grep -q '"Deploy Prod"'; then
+            echo "FAIL: Deploy Prod should be hidden for mock user (not in devops group)"
+            exit 1
+          fi
+          echo "OK: Deploy Prod is hidden for non-devops user"
+
+          echo "--- Mock user cannot trigger Deploy Prod ---"
+          CODE=$(curl -s -b "$CJ" -o /dev/null -w '%{http_code}' -X POST http://localhost:3000/api/pipelines/trigger \
+            -H 'Content-Type: application/json' \
+            -d '{"projectId":"1","pipelineName":"Deploy Prod","variables":{}}')
+          [ "$CODE" = "403" ] || { echo "FAIL: expected 403, got $CODE"; exit 1; }
+          echo "OK: trigger Deploy Prod → 403 for non-devops user"
+
+          rm -f "$CJ"
+
+          # Alice (devops group) should see Deploy Prod
+          ALICE_CJ=$(mktemp)
+          curl -s -c "$ALICE_CJ" -w '\n%{http_code}' -X POST http://localhost:3000/api/auth/local/login \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"alice@company.com","password":"secret123"}' > /dev/null
+
+          echo "--- Alice (devops) should see Deploy Prod ---"
+          ALICE_PIPELINES=$(curl -sf -b "$ALICE_CJ" http://localhost:3000/api/pipelines)
+          echo "$ALICE_PIPELINES"
+          echo "$ALICE_PIPELINES" | grep -q '"Deploy Prod"'
+          echo "OK: Deploy Prod is visible for devops user"
+
+          echo "--- Alice can trigger Deploy Prod ---"
+          TRIGGER=$(curl -sf -b "$ALICE_CJ" -X POST http://localhost:3000/api/pipelines/trigger \
+            -H 'Content-Type: application/json' \
+            -d '{"projectId":"1","pipelineName":"Deploy Prod","variables":{}}')
+          echo "$TRIGGER"
+          echo "$TRIGGER" | grep -q '"id"'
+          echo "OK: Alice can trigger Deploy Prod"
+
+          rm -f "$ALICE_CJ"
+
+      - name: "API: SSE streaming endpoints"
+        run: |
+          CJ=$(mktemp)
+          curl -s -c "$CJ" -L -o /dev/null http://localhost:3000/api/auth/mock/login
+
+          echo "--- Trigger a pipeline first ---"
+          TRIGGER=$(curl -sf -b "$CJ" -X POST http://localhost:3000/api/pipelines/trigger \
+            -H 'Content-Type: application/json' \
+            -d '{"projectId":"1","pipelineName":"Deploy","variables":{}}')
+          PID=$(echo "$TRIGGER" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+          echo "Pipeline ID: $PID"
+
+          echo "--- SSE pipeline stream returns event-stream content type ---"
+          # Use timeout to read just the first chunk (SSE never closes while running)
+          SSE_HEADERS=$(curl -s -b "$CJ" -D - -o /tmp/sse_body.txt --max-time 5 \
+            "http://localhost:3000/api/pipelines/1/$PID/stream" 2>/dev/null || true)
+          echo "$SSE_HEADERS"
+          echo "$SSE_HEADERS" | grep -qi "text/event-stream"
+          echo "OK: SSE pipeline stream returns text/event-stream"
+
+          # Check body contains SSE events
+          SSE_BODY=$(cat /tmp/sse_body.txt)
+          echo "$SSE_BODY"
+          echo "$SSE_BODY" | grep -q "event: status"
+          echo "OK: SSE body contains status events"
+
+          echo "--- SSE pipeline stream returns 403 for unauthorized project ---"
+          CODE=$(curl -s -b "$CJ" -o /dev/null -w '%{http_code}' --max-time 3 \
+            "http://localhost:3000/api/pipelines/999/123/stream" 2>/dev/null || true)
+          [ "$CODE" = "403" ] || { echo "FAIL: expected 403, got $CODE"; exit 1; }
+          echo "OK: SSE pipeline stream → 403 for unauthorized project"
+
+          echo "--- Get job ID for log stream test ---"
+          DETAIL=$(curl -sf -b "$CJ" "http://localhost:3000/api/pipelines/1/$PID")
+          JOB_ID=$(echo "$DETAIL" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['jobs'][0]['id'])" 2>/dev/null || true)
+          if [ -n "$JOB_ID" ]; then
+            echo "--- SSE job trace stream returns event-stream content type ---"
+            LOG_HEADERS=$(curl -s -b "$CJ" -D - -o /tmp/sse_logs.txt --max-time 5 \
+              "http://localhost:3000/api/pipelines/1/jobs/$JOB_ID/trace/stream?pipelineId=$PID" 2>/dev/null || true)
+            echo "$LOG_HEADERS"
+            echo "$LOG_HEADERS" | grep -qi "text/event-stream"
+            echo "OK: SSE log stream returns text/event-stream"
+
+            LOG_BODY=$(cat /tmp/sse_logs.txt)
+            echo "$LOG_BODY"
+            echo "$LOG_BODY" | grep -q "event: logs"
+            echo "OK: SSE log body contains logs events"
+          fi
+
+          rm -f "$CJ"
+
+      # ── UI smoke tests (Playwright) ─────────────────────────────────────
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install workspace deps
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx --workspace e2e playwright install --with-deps chromium
+
+      - name: "UI: Playwright e2e suite"
+        run: npm --workspace e2e test
+        env:
+          BASE_URL: http://localhost:3000
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: playwright-report
+          path: e2e/playwright-report/
+          if-no-files-found: ignore
+
+      - name: Show container logs on failure
+        if: failure()
+        run: docker logs smoke
+
+      - name: Stop container
+        if: always()
+        run: docker stop smoke || true
+
+  # ─── Split deployment smoke test (API image + CDN-hosted SPA) ────────
+  docker-split-test:
+    name: Docker Split — API image + static SPA
+    runs-on: ubuntu-latest
+    needs: [server, client]
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build API image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile.api
+          load: true
+          tags: buildvalve-api:test
+          cache-from: type=gha
+
+      - name: Build client SPA (CDN bundle)
+        run: |
+          npm ci
+          VITE_API_URL=http://localhost:3000 npm run build --workspace=client
+
+      - name: Write nginx config for SPA fallback
+        run: |
+          cat > /tmp/spa.conf <<'NGINX'
+          server {
+              listen 80;
+              root /usr/share/nginx/html;
+              location / {
+                  try_files $uri $uri/ /index.html;
+              }
+          }
+          NGINX
+
+      - name: Write test config
+        # Mirror the combined-image config so the same Playwright suite runs
+        # against both topologies — split-deployment only changes the network
+        # layer (CDN-hosted SPA + cross-origin /api), not the feature surface.
+        run: |
+          cat > /tmp/config.yml <<'YAML'
+          public_url: http://localhost:3000
+          ci_providers:
+            - name: mock-gitlab
+              type: gitlab
+              url: https://gitlab.example.com
+              token: glpat-test
+              mock: true
+            - name: mock-github
+              type: github-actions
+              github_token: ghp-test
+              mock: true
+            - name: mock-circleci
+              type: circleci
+              circleci_token: cc-test
+              mock: true
+          admins:
+            - test@test.com
+            - alice@company.com
+          auth:
+            providers:
+              - type: mock
+                enabled: true
+                label: "Mock Login"
+                mock_user:
+                  email: test@test.com
+                  groups: [test]
+              - type: local
+                enabled: true
+                label: "Local Login"
+                users:
+                  # password = "secret123"
+                  - email: alice@company.com
+                    password_sha256: fcf730b6d95236ecd3c9fc2d92d7b6b2bb061514961aec041d6c7a7192f592e4
+                    groups: [devops]
+                  # password = "pass456"
+                  - email: noaccess@company.com
+                    password_sha256: 1d4598d1949b47f7f211134b639ec32238ce73086a83c2f745713b3f12f817e5
+          session:
+            secret: smoke-test-secret-1234
+            max_age: 3600
+          projects:
+            - id: "1"
+              name: Test Project (GitLab)
+              description: A GitLab test project
+              provider: mock-gitlab
+              external_id: "1"
+              pipelines:
+                - name: Deploy
+                  ref: main
+                  variables: []
+                - name: Deploy Prod
+                  ref: main
+                  variables: []
+                  allowed_groups: [devops]
+            - id: frontend
+              name: Frontend App (GitHub)
+              description: A GitHub Actions project
+              provider: mock-github
+              external_id: myorg/frontend
+              pipelines:
+                - name: Build & Deploy
+                  ref: main
+                  workflow_id: deploy.yml
+                  variables:
+                    - key: ENVIRONMENT
+                      value: staging
+                      locked: false
+                      description: Target environment
+                      type: select
+                      options:
+                        - staging
+                        - production
+                    - key: DRY_RUN
+                      value: "true"
+                      locked: false
+                      description: Simulate without applying
+                      type: radio
+                      options:
+                        - "true"
+                        - "false"
+                    - key: NOTIFY_STAKEHOLDERS
+                      value: "false"
+                      locked: false
+                      description: Email the on-call list when the rollout completes
+                      type: radio
+                      options:
+                        - "true"
+                        - "false"
+                      needs:
+                        ENVIRONMENT: production
+            - id: api-service
+              name: API Service (CircleCI)
+              description: A CircleCI project
+              provider: mock-circleci
+              external_id: gh/myorg/api
+              pipelines:
+                - name: Release
+                  ref: main
+                  variables: []
+          permissions:
+            - users: [test@test.com, alice@company.com]
+              projects: ["1", frontend, api-service]
+          external_links:
+            - label: Grafana
+              url: https://grafana.example.com
+            - label: Wiki
+              url: https://wiki.example.com
+          YAML
+
+      - name: Start API container
+        run: |
+          docker run -d --name split-api \
+            -v /tmp/config.yml:/app/config/config.yml:ro \
+            -e NODE_ENV=test \
+            -e CORS_ORIGIN=http://localhost:8080 \
+            -p 3000:3000 \
+            buildvalve-api:test
+
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3000/api/health > /dev/null 2>&1; then
+              echo "API is ready"
+              break
+            fi
+            if [ "$i" = "30" ]; then
+              echo "API failed to start"
+              docker logs split-api
+              exit 1
+            fi
+            sleep 1
+          done
+
+      - name: Start static SPA host (nginx serving client/dist)
+        run: |
+          docker run -d --name split-spa \
+            -v "$GITHUB_WORKSPACE/client/dist:/usr/share/nginx/html:ro" \
+            -v /tmp/spa.conf:/etc/nginx/conf.d/default.conf:ro \
+            -p 8080:80 \
+            nginx:alpine
+
+          for i in $(seq 1 15); do
+            if curl -sf http://localhost:8080/ > /dev/null 2>&1; then
+              echo "SPA host is ready"
+              break
+            fi
+            if [ "$i" = "15" ]; then
+              echo "SPA host failed to start"
+              docker logs split-spa
+              exit 1
+            fi
+            sleep 1
+          done
+
+      - name: "Split API: health check"
+        run: |
+          echo "--- API health ---"
+          HEALTH=$(curl -sf http://localhost:3000/api/health)
+          echo "$HEALTH"
+          echo "$HEALTH" | grep -q '"status":"ok"'
+          echo "OK: API healthy"
+
+      - name: "Split API: auth and pipelines"
+        run: |
+          CJ=$(mktemp)
+
+          echo "--- Mock login via API ---"
+          curl -s -c "$CJ" -L -o /dev/null http://localhost:3000/api/auth/mock/login
+          ME=$(curl -sf -b "$CJ" http://localhost:3000/api/auth/me)
+          echo "$ME" | grep -q '"test@test.com"'
+          echo "OK: Auth works on api-only image"
+
+          echo "--- Pipelines ---"
+          PIPELINES=$(curl -sf -b "$CJ" http://localhost:3000/api/pipelines)
+          echo "$PIPELINES" | grep -q '"Test Project (GitLab)"'
+          echo "OK: Pipelines endpoint works"
+
+          echo "--- Trigger ---"
+          # Project 1's Deploy pipeline has no variables — use frontend/Build & Deploy,
+          # which exposes ENVIRONMENT/DRY_RUN, to exercise both happy + invalid paths.
+          TRIGGER=$(curl -sf -b "$CJ" -X POST http://localhost:3000/api/pipelines/trigger \
+            -H 'Content-Type: application/json' \
+            -d '{"projectId":"frontend","pipelineName":"Build & Deploy","variables":{"ENVIRONMENT":"staging","DRY_RUN":"true"}}')
+          echo "$TRIGGER" | grep -q '"id"'
+          echo "OK: Trigger works on api-only image"
+
+          echo "--- Invalid select option rejected ---"
+          CODE=$(curl -s -b "$CJ" -o /dev/null -w '%{http_code}' -X POST http://localhost:3000/api/pipelines/trigger \
+            -H 'Content-Type: application/json' \
+            -d '{"projectId":"frontend","pipelineName":"Build & Deploy","variables":{"ENVIRONMENT":"invalid","DRY_RUN":"true"}}')
+          [ "$CODE" = "400" ] || { echo "FAIL: expected 400, got $CODE"; exit 1; }
+          echo "OK: Invalid select option rejected"
+
+          rm -f "$CJ"
+
+      - name: "Split SPA: static bundle serves correctly"
+        run: |
+          echo "--- Client SPA index.html loads ---"
+          HTML=$(curl -sf http://localhost:8080/)
+          echo "$HTML" | grep -q '<div id="root">'
+          echo "OK: Client SPA serves index.html"
+
+          echo "--- SPA fallback works ---"
+          HTML=$(curl -sf http://localhost:8080/login)
+          echo "$HTML" | grep -q '<div id="root">'
+          echo "OK: SPA fallback returns index.html"
+
+          echo "--- JS bundle loads ---"
+          SCRIPT=$(curl -sf http://localhost:8080/ | grep -o 'src="/assets/[^"]*"' | head -1 | sed 's/src="//;s/"//')
+          echo "Script: $SCRIPT"
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:8080${SCRIPT}")
+          [ "$CODE" = "200" ] || { echo "FAIL: JS bundle returned $CODE"; exit 1; }
+          echo "OK: JS bundle loads"
+
+          echo "--- CSS loads ---"
+          CSS=$(curl -sf http://localhost:8080/ | grep -o 'href="/assets/[^"]*\.css"' | head -1 | sed 's/href="//;s/"//')
+          echo "CSS: $CSS"
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:8080${CSS}")
+          [ "$CODE" = "200" ] || { echo "FAIL: CSS returned $CODE"; exit 1; }
+          echo "OK: CSS loads"
+
+      # ── UI smoke tests (Playwright) — split deployment ─────────────────
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install workspace deps
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx --workspace e2e playwright install --with-deps chromium
+
+      - name: "Split UI: Playwright e2e suite"
+        run: npm --workspace e2e test
+        env:
+          # SPA on :8080 (nginx) proxying /api to the API container on :3000.
+          BASE_URL: http://localhost:8080
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: playwright-report-split
+          path: e2e/playwright-report/
+          if-no-files-found: ignore
+
+      - name: Show container logs on failure
+        if: failure()
+        run: |
+          echo "=== API ===" && docker logs split-api
+          echo "=== SPA ===" && docker logs split-spa
+
+      - name: Stop containers
+        if: always()
+        run: |
+          docker stop split-api split-spa || true

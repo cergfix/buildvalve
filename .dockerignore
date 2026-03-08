@@ -1,0 +1,9 @@
+node_modules
+**/node_modules
+config/config.yml
+.git
+.github
+dev
+local
+*.md
+!README.md

@@ -1,0 +1,199 @@
+import "dotenv/config";
+import path from "node:path";
+import { existsSync } from "node:fs";
+import express from "express";
+import cors from "cors";
+import helmet from "helmet";
+import morgan from "morgan";
+import passport from "passport";
+import { loadConfig } from "./config.js";
+import { isPlainHttp } from "./utils/scheme.js";
+import { createSessionMiddleware } from "./middleware/session.js";
+import { SamlProvider } from "./services/auth/saml-provider.js";
+import { registerProvider, getAllProviders } from "./services/auth/index.js";
+import { registerCIProvider } from "./services/ci/index.js";
+import { GitLabProvider } from "./services/ci/gitlab-provider.js";
+import { GitHubActionsProvider } from "./services/ci/github-actions-provider.js";
+import { CircleCIProvider } from "./services/ci/circleci-provider.js";
+import { MockCIProvider } from "./services/ci/mock-provider.js";
+import { createAuthRouter } from "./routes/auth.js";
+import { createPipelineRouter } from "./routes/pipelines.js";
+import { createTriggeredRunsStore } from "./services/triggered-runs/store.js";
+import { createAdminRouter } from "./routes/admin.js";
+import type { SamlProviderConfig, OAuthProviderConfig, LocalProviderConfig, MockProviderConfig } from "./types/index.js";
+import { OAuthProvider } from "./services/auth/oauth-provider.js";
+import { LocalProvider } from "./services/auth/local-provider.js";
+import { MockProvider } from "./services/auth/mock-provider.js";
+import { logger, morganStream } from "./utils/logger.js";
+
+const configPath = process.env.CONFIG_PATH;
+const config = loadConfig(configPath);
+
+logger.info(`Loaded config: ${config.projects.length} projects, ${config.permissions.length} permission rules, ${config.ci_providers.length} CI providers`);
+
+// Init auth providers
+for (const providerConfig of config.auth.providers) {
+  if (!providerConfig.enabled) continue;
+
+  if (providerConfig.type === "saml") {
+    const provider = new SamlProvider(providerConfig as SamlProviderConfig, config);
+    registerProvider(provider);
+  } else if (providerConfig.type === "github" || providerConfig.type === "google" || providerConfig.type === "gitlab") {
+    const provider = new OAuthProvider(providerConfig as OAuthProviderConfig, config);
+    registerProvider(provider);
+  } else if (providerConfig.type === "local") {
+    const provider = new LocalProvider(providerConfig as LocalProviderConfig, config);
+    registerProvider(provider);
+  } else if (providerConfig.type === "mock") {
+    const provider = new MockProvider(providerConfig as MockProviderConfig);
+    registerProvider(provider);
+  } else {
+    logger.warn(`Unknown auth provider type: ${providerConfig.type} — skipping`);
+    continue;
+  }
+  logger.info(`Auth provider registered: ${providerConfig.label} (${providerConfig.type})`);
+}
+
+const providers = getAllProviders();
+if (providers.length === 0) {
+  throw new Error("No auth providers enabled. Check config.yml auth.providers.");
+}
+
+// Init CI providers
+for (const providerConfig of config.ci_providers) {
+  if (providerConfig.mock) {
+    registerCIProvider(new MockCIProvider(providerConfig.name, providerConfig.type));
+  } else {
+    switch (providerConfig.type) {
+      case "gitlab":
+        if (!providerConfig.url || !providerConfig.token) {
+          throw new Error(`GitLab CI provider "${providerConfig.name}" requires url and token`);
+        }
+        registerCIProvider(new GitLabProvider(providerConfig.name, providerConfig.url, providerConfig.token));
+        break;
+      case "github-actions":
+        if (!providerConfig.github_token) {
+          throw new Error(`GitHub Actions CI provider "${providerConfig.name}" requires github_token`);
+        }
+        registerCIProvider(new GitHubActionsProvider(providerConfig.name, providerConfig.github_token, providerConfig.github_api_url));
+        break;
+      case "circleci":
+        if (!providerConfig.circleci_token) {
+          throw new Error(`CircleCI CI provider "${providerConfig.name}" requires circleci_token`);
+        }
+        registerCIProvider(new CircleCIProvider(providerConfig.name, providerConfig.circleci_token, providerConfig.circleci_api_url));
+        break;
+      default:
+        logger.warn(`Unknown CI provider type: ${providerConfig.type} — skipping`);
+        continue;
+    }
+  }
+  logger.info(`CI provider registered: ${providerConfig.name} (${providerConfig.type}${providerConfig.mock ? ", mock" : ""})`);
+}
+
+// Express app
+const app = express();
+
+// HTTPS-related headers (HSTS + CSP upgrade-insecure-requests) are driven by
+// `config.public_url`. Default = HTTPS-aware. Set `public_url: http://...` for
+// plain-HTTP deployments to strip HSTS + upgrade-insecure-requests.
+const plainHttp = isPlainHttp(config);
+
+app.use(
+  helmet({
+    contentSecurityPolicy:
+      process.env.NODE_ENV === "development"
+        ? false
+        : plainHttp
+        ? {
+            useDefaults: true,
+            directives: {
+              // Strip upgrade-insecure-requests so we don't redirect HTTP→HTTPS
+              // on plain-HTTP deployments.
+              "upgrade-insecure-requests": null,
+            },
+          }
+        : undefined, // helmet defaults — includes upgrade-insecure-requests
+    strictTransportSecurity: plainHttp ? false : undefined,
+  })
+);
+app.use(morgan("short", { stream: morganStream }));
+app.use(
+  cors({
+    origin: process.env.CORS_ORIGIN ?? true,
+    credentials: true,
+  })
+);
+app.use(express.json());
+app.use(express.urlencoded({ extended: true })); // needed for SAML POST callback
+app.use(createSessionMiddleware(config));
+app.use(passport.initialize());
+
+// Health check (before auth-protected routers)
+app.get("/api/health", (_req, res) => {
+  res.json({ status: "ok", providers: providers.map((p) => p.type) });
+});
+
+// Serve client SPA static assets (before auth-protected routers so they don't intercept non-API requests)
+const clientDir = path.resolve(import.meta.dirname, "../../client/dist");
+if (existsSync(clientDir)) {
+  app.use(express.static(clientDir));
+  logger.info(`Serving client SPA from ${clientDir}`);
+}
+
+// Persistent store of BuildValve-triggered runs. Used by the history endpoint
+// to filter to our runs (and surface "triggered by" + variables).
+const triggeredRunsStore = createTriggeredRunsStore(config);
+
+// Routes
+app.use(createAuthRouter(config, providers));
+app.use(createPipelineRouter(config, triggeredRunsStore));
+app.use(createAdminRouter(config));
+
+// SPA fallback — serves index.html for non-API routes (client-side routing)
+if (existsSync(clientDir)) {
+  app.get(/^\/(?!api\/).*/, (_req, res) => {
+    res.sendFile(path.join(clientDir, "index.html"));
+  });
+}
+
+// Start
+const port = Number(process.env.PORT) || 3000;
+const server = app.listen(port, () => {
+  logger.info(`Server listening on port ${port}`);
+});
+
+/**
+ * Graceful shutdown on SIGTERM / SIGINT. Without this Node ignores these
+ * signals and Docker waits the full 10s --stop-timeout before SIGKILL.
+ *
+ * Strategy: stop accepting new connections, drain in-flight HTTP responses,
+ * close SSE streams by destroying any sockets still open after 5s. Force-exit
+ * after 8s so we always finish before Docker's default kill window.
+ */
+function shutdown(signal: NodeJS.Signals) {
+  logger.info(`Received ${signal} — shutting down`);
+  const force = setTimeout(() => {
+    logger.warn("Forcing exit after 8s shutdown timeout");
+    process.exit(1);
+  }, 8_000);
+  force.unref();
+
+  // After 5s, ask any still-open sockets (long-lived SSE connections) to close.
+  const drainSockets = setTimeout(() => {
+    server.closeAllConnections?.();
+  }, 5_000);
+  drainSockets.unref();
+
+  server.close((err) => {
+    if (err) {
+      logger.error(`Error during server.close: ${err.message}`);
+      process.exit(1);
+    }
+    logger.info("HTTP server closed cleanly");
+    process.exit(0);
+  });
+}
+
+process.once("SIGTERM", () => shutdown("SIGTERM"));
+process.once("SIGINT", () => shutdown("SIGINT"));

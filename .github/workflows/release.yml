@@ -1,0 +1,128 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  docker:
+    name: Build & push Docker images
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        include:
+          - image: buildvalve
+            dockerfile: Dockerfile
+            suffix: ""
+          - image: buildvalve-api
+            dockerfile: Dockerfile.api
+            suffix: "-api"
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository }}${{ matrix.suffix }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Pin a recent QEMU build — the default binfmt image shipped via
+      # setup-buildx-action ships an older QEMU that fails on Node 22 under
+      # linux/arm64 emulation with "qemu: uncaught target signal 4 (Illegal
+      # instruction)" during npm postinstall scripts (esbuild, etc).
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          image: tonistiigi/binfmt:qemu-v10.2.1
+          platforms: linux/arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  app-bundle:
+    name: Build & upload buildvalve-app SPA bundle
+    runs-on: ubuntu-latest
+
+    outputs:
+      artifact: ${{ steps.pack.outputs.artifact }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build client
+        run: npm run build --workspace=client
+
+      - name: Pack bundle
+        id: pack
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          ARTIFACT="buildvalve-app-${VERSION}.tar.gz"
+          tar -czf "${ARTIFACT}" -C client/dist .
+          echo "artifact=${ARTIFACT}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload bundle artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: buildvalve-app
+          path: ${{ steps.pack.outputs.artifact }}
+          if-no-files-found: error
+
+  github-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [docker, app-bundle]
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Download buildvalve-app bundle
+        uses: actions/download-artifact@v5
+        with:
+          name: buildvalve-app
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: buildvalve-app-*.tar.gz
