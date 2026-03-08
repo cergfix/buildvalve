@@ -1,0 +1,429 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ─── Server ───────────────────────────────────────────────────────────────
+  server:
+    name: Server — type-check, test, build
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: server
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npx tsc --noEmit
+
+      - name: Run tests
+        run: npm test -- --run
+
+      - name: Build
+        run: npm run build
+
+  # ─── Client ───────────────────────────────────────────────────────────────
+  client:
+    name: Client — lint, type-check, build
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: client
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type-check & build
+        run: npm run build
+
+  # ─── Docker smoke test ───────────────────────────────────────────────────
+  docker-smoke-test:
+    name: Docker — build, API & UI smoke tests
+    runs-on: ubuntu-latest
+    needs: [server, client]
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          tags: buildvalve:smoke-test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Write test config
+        run: |
+          cat > /tmp/config.yml <<'YAML'
+          gitlab:
+            url: https://gitlab.example.com
+            service_account_token: glpat-test
+            mock: true
+          admins:
+            - test@test.com
+          auth:
+            providers:
+              - type: mock
+                enabled: true
+                label: "Mock Login"
+                mock_user:
+                  email: test@test.com
+                  groups: [test]
+          session:
+            secret: smoke-test-secret-1234
+            max_age: 3600
+          projects:
+            - id: 1
+              name: Test Project
+              description: A test project
+              pipelines:
+                - name: Deploy
+                  ref: main
+                  variables: []
+          permissions:
+            - users: [test@test.com]
+              projects: [1]
+          YAML
+
+      - name: Start container
+        run: |
+          docker run -d --name smoke \
+            -v /tmp/config.yml:/app/config/config.yml:ro \
+            -e NODE_ENV=test \
+            -p 3000:3000 \
+            buildvalve:smoke-test
+
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3000/api/health > /dev/null 2>&1; then
+              echo "Server is ready"
+              break
+            fi
+            if [ "$i" = "30" ]; then
+              echo "Server failed to start"
+              docker logs smoke
+              exit 1
+            fi
+            sleep 1
+          done
+
+      # ── API smoke tests (curl) ──────────────────────────────────────────
+      - name: "API: public endpoints"
+        run: |
+          echo "--- GET /api/health ---"
+          HEALTH=$(curl -sf http://localhost:3000/api/health)
+          echo "$HEALTH"
+          echo "$HEALTH" | grep -q '"status":"ok"'
+          echo "$HEALTH" | grep -q '"mock"'
+
+          echo "--- GET /api/auth/providers ---"
+          PROVIDERS=$(curl -sf http://localhost:3000/api/auth/providers)
+          echo "$PROVIDERS"
+          echo "$PROVIDERS" | grep -q '"type":"mock"'
+          echo "$PROVIDERS" | grep -q '"label":"Mock Login"'
+          echo "$PROVIDERS" | grep -q '"/api/auth/mock/login"'
+
+      - name: "API: unauthenticated requests return 401"
+        run: |
+          for ENDPOINT in /api/auth/me /api/pipelines /api/pipelines/recent /api/admin/config; do
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:3000$ENDPOINT")
+            if [ "$CODE" != "401" ]; then
+              echo "FAIL: $ENDPOINT returned $CODE, expected 401"
+              exit 1
+            fi
+            echo "OK: $ENDPOINT → 401"
+          done
+
+      - name: "API: mock login flow"
+        run: |
+          COOKIE_JAR=$(mktemp)
+
+          echo "--- GET /api/auth/mock/login (follow redirect) ---"
+          LOGIN_CODE=$(curl -s -c "$COOKIE_JAR" -L -o /dev/null -w '%{http_code}' http://localhost:3000/api/auth/mock/login)
+          echo "Login response: $LOGIN_CODE"
+          [ "$LOGIN_CODE" = "200" ] || { echo "FAIL: login returned $LOGIN_CODE"; exit 1; }
+
+          echo "--- GET /api/auth/me ---"
+          ME=$(curl -sf -b "$COOKIE_JAR" http://localhost:3000/api/auth/me)
+          echo "$ME"
+          echo "$ME" | grep -q '"email":"test@test.com"'
+          echo "$ME" | grep -q '"provider":"mock"'
+
+          echo "$COOKIE_JAR" > /tmp/cookie_jar_path
+          cp "$COOKIE_JAR" /tmp/cookies.txt
+
+      - name: "API: authenticated pipeline endpoints"
+        run: |
+          CJ=/tmp/cookies.txt
+
+          echo "--- GET /api/pipelines ---"
+          PIPELINES=$(curl -sf -b "$CJ" http://localhost:3000/api/pipelines)
+          echo "$PIPELINES"
+          echo "$PIPELINES" | grep -q '"Test Project"'
+          echo "$PIPELINES" | grep -q '"Deploy"'
+
+          echo "--- GET /api/pipelines/recent ---"
+          RECENT=$(curl -sf -b "$CJ" http://localhost:3000/api/pipelines/recent)
+          echo "$RECENT"
+          echo "$RECENT" | grep -q '"projectId":1'
+
+          echo "--- POST /api/pipelines/trigger ---"
+          TRIGGER=$(curl -sf -b "$CJ" -X POST http://localhost:3000/api/pipelines/trigger \
+            -H 'Content-Type: application/json' \
+            -d '{"projectId":1,"pipelineName":"Deploy","variables":{}}')
+          echo "$TRIGGER"
+          echo "$TRIGGER" | grep -q '"id"'
+          PIPELINE_ID=$(echo "$TRIGGER" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
+          echo "Triggered pipeline ID: $PIPELINE_ID"
+
+          echo "--- GET /api/pipelines/1/history?ref=main ---"
+          HISTORY=$(curl -sf -b "$CJ" "http://localhost:3000/api/pipelines/1/history?ref=main")
+          echo "$HISTORY"
+
+          echo "--- GET /api/pipelines/1/$PIPELINE_ID ---"
+          DETAIL=$(curl -sf -b "$CJ" "http://localhost:3000/api/pipelines/1/$PIPELINE_ID")
+          echo "$DETAIL"
+          echo "$DETAIL" | grep -q '"pipeline"'
+          echo "$DETAIL" | grep -q '"jobs"'
+
+          # Extract a job ID for trace test
+          JOB_ID=$(echo "$DETAIL" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
+          if [ -n "$JOB_ID" ]; then
+            echo "--- GET /api/pipelines/1/jobs/$JOB_ID/trace ---"
+            TRACE_CODE=$(curl -s -b "$CJ" -o /dev/null -w '%{http_code}' "http://localhost:3000/api/pipelines/1/jobs/$JOB_ID/trace")
+            echo "Trace response: $TRACE_CODE"
+            [ "$TRACE_CODE" = "200" ] || [ "$TRACE_CODE" = "404" ] || { echo "FAIL: unexpected $TRACE_CODE"; exit 1; }
+          fi
+
+      - name: "API: admin endpoint"
+        run: |
+          CJ=/tmp/cookies.txt
+
+          echo "--- GET /api/admin/config ---"
+          ADMIN=$(curl -sf -b "$CJ" http://localhost:3000/api/admin/config)
+          echo "$ADMIN"
+          echo "$ADMIN" | grep -q '"REDACTED"'
+          echo "$ADMIN" | grep -q '"projects"'
+
+      - name: "API: POST /api/auth/logout"
+        run: |
+          CJ=/tmp/cookies.txt
+
+          echo "--- POST /api/auth/logout ---"
+          LOGOUT=$(curl -sf -b "$CJ" -X POST http://localhost:3000/api/auth/logout)
+          echo "$LOGOUT"
+          echo "$LOGOUT" | grep -q '"ok":true'
+
+          echo "--- Verify session is invalidated ---"
+          CODE=$(curl -s -b "$CJ" -o /dev/null -w '%{http_code}' http://localhost:3000/api/auth/me)
+          [ "$CODE" = "401" ] || { echo "FAIL: /api/auth/me returned $CODE after logout"; exit 1; }
+          echo "OK: session invalidated after logout"
+
+      - name: "API: authorization checks"
+        run: |
+          # Login fresh for auth tests
+          CJ=$(mktemp)
+          curl -s -c "$CJ" -L -o /dev/null http://localhost:3000/api/auth/mock/login
+
+          echo "--- Trigger for unauthorized project returns 403 ---"
+          CODE=$(curl -s -b "$CJ" -o /dev/null -w '%{http_code}' -X POST http://localhost:3000/api/pipelines/trigger \
+            -H 'Content-Type: application/json' \
+            -d '{"projectId":999,"pipelineName":"Deploy","variables":{}}')
+          [ "$CODE" = "403" ] || { echo "FAIL: expected 403, got $CODE"; exit 1; }
+          echo "OK: unauthorized project → 403"
+
+          echo "--- Trigger with missing fields returns 400 ---"
+          CODE=$(curl -s -b "$CJ" -o /dev/null -w '%{http_code}' -X POST http://localhost:3000/api/pipelines/trigger \
+            -H 'Content-Type: application/json' \
+            -d '{}')
+          [ "$CODE" = "400" ] || { echo "FAIL: expected 400, got $CODE"; exit 1; }
+          echo "OK: missing fields → 400"
+
+          echo "--- Nonexistent pipeline returns 404 ---"
+          CODE=$(curl -s -b "$CJ" -o /dev/null -w '%{http_code}' -X POST http://localhost:3000/api/pipelines/trigger \
+            -H 'Content-Type: application/json' \
+            -d '{"projectId":1,"pipelineName":"NonExistent","variables":{}}')
+          [ "$CODE" = "404" ] || { echo "FAIL: expected 404, got $CODE"; exit 1; }
+          echo "OK: nonexistent pipeline → 404"
+
+          rm -f "$CJ"
+
+      # ── UI smoke tests (Selenium) ───────────────────────────────────────
+      - name: Set up Chrome and Selenium
+        run: |
+          pip install selenium webdriver-manager
+
+      - name: "UI: Selenium smoke tests"
+        run: |
+          python3 << 'PYEOF'
+          import sys
+          import time
+          from selenium import webdriver
+          from selenium.webdriver.common.by import By
+          from selenium.webdriver.chrome.options import Options
+          from selenium.webdriver.chrome.service import Service
+          from selenium.webdriver.support.ui import WebDriverWait
+          from selenium.webdriver.support import expected_conditions as EC
+          from webdriver_manager.chrome import ChromeDriverManager
+
+          BASE = "http://localhost:3000"
+          failures = []
+
+          def fail(msg):
+              print(f"FAIL: {msg}")
+              failures.append(msg)
+
+          options = Options()
+          options.add_argument("--headless=new")
+          options.add_argument("--no-sandbox")
+          options.add_argument("--disable-dev-shm-usage")
+          options.add_argument("--disable-gpu")
+          service = Service(ChromeDriverManager().install())
+          driver = webdriver.Chrome(service=service, options=options)
+          wait = WebDriverWait(driver, 10)
+
+          try:
+              # ── Login page ──────────────────────────────────────────────
+              print("--- Login page ---")
+              driver.get(BASE)
+              # SPA should redirect to /login
+              wait.until(EC.url_contains("/login"))
+              print(f"Redirected to: {driver.current_url}")
+
+              # Verify branding
+              try:
+                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'BuildValve')]")))
+                  print("OK: BuildValve branding visible")
+              except:
+                  fail("BuildValve branding not found on login page")
+
+              # Verify login button exists (button text is "Sign in with <label>")
+              try:
+                  login_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Sign in with')]")))
+                  print(f"OK: Login button found: '{login_btn.text}'")
+              except:
+                  fail("Login button not found")
+                  login_btn = None
+
+              # ── Click login ────────────────────────────────────────────
+              if login_btn:
+                  print("--- Clicking login ---")
+                  login_btn.click()
+                  # Mock login redirects to / which should load the dashboard
+                  wait.until(lambda d: "/login" not in d.current_url)
+                  print(f"After login URL: {driver.current_url}")
+
+                  # ── Dashboard ───────────────────────────────────────────
+                  print("--- Dashboard ---")
+                  try:
+                      wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Test Project')]")))
+                      print("OK: Project name visible on dashboard")
+                  except:
+                      fail("Project name not found on dashboard")
+
+                  try:
+                      wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Deploy')]")))
+                      print("OK: Pipeline name visible on dashboard")
+                  except:
+                      fail("Pipeline name not found on dashboard")
+
+                  # ── Navigate to pipeline launch ─────────────────────────
+                  print("--- Pipeline launch page ---")
+                  try:
+                      launch_link = wait.until(EC.element_to_be_clickable(
+                          (By.XPATH, "//a[contains(text(), 'Launch')] | //button[contains(text(), 'Launch')]")))
+                      launch_link.click()
+                      wait.until(EC.url_contains("/pipeline/"))
+                      print(f"Launch page URL: {driver.current_url}")
+
+                      wait.until(EC.presence_of_element_located(
+                          (By.XPATH, "//button[contains(text(), 'Launch')] | //*[contains(text(), 'Deploy')]")))
+                      print("OK: Pipeline launch page loaded")
+                  except Exception as e:
+                      fail(f"Pipeline launch page: {e}")
+
+                  # ── Profile page ────────────────────────────────────────
+                  print("--- Profile page ---")
+                  driver.get(f"{BASE}/profile")
+                  try:
+                      wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'test@test.com')]")))
+                      print("OK: User email visible on profile page")
+                  except:
+                      fail("User email not found on profile page")
+
+                  # ── Admin page ──────────────────────────────────────────
+                  print("--- Admin page ---")
+                  driver.get(f"{BASE}/admin")
+                  try:
+                      wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'REDACTED')]")))
+                      print("OK: Admin config page shows redacted values")
+                  except:
+                      fail("Admin config page did not show redacted values")
+
+          except Exception as e:
+              fail(f"Unexpected error: {e}")
+              print(f"Current URL: {driver.current_url}")
+              print(f"Page source (first 2000 chars):\n{driver.page_source[:2000]}")
+          finally:
+              if failures:
+                  driver.save_screenshot("/tmp/selenium-failure.png")
+                  print(f"\nScreenshot saved to /tmp/selenium-failure.png")
+              driver.quit()
+
+          if failures:
+              print(f"\n{'='*50}")
+              print(f"{len(failures)} UI test(s) failed:")
+              for f in failures:
+                  print(f"  - {f}")
+              sys.exit(1)
+          else:
+              print(f"\nAll UI smoke tests passed")
+          PYEOF
+
+      - name: Upload screenshot on failure
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: selenium-screenshot
+          path: /tmp/selenium-failure.png
+          if-no-files-found: ignore
+
+      - name: Show container logs on failure
+        if: failure()
+        run: docker logs smoke
+
+      - name: Stop container
+        if: always()
+        run: docker stop smoke || true

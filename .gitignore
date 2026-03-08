@@ -1,0 +1,61 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
+dist/
+build/
+out/
+server/dist/
+client/dist/
+
+# Runtime data — ignore contents but keep the directory structure
+server/data/*
+!server/data/.gitkeep
+server/logs/*
+!server/logs/.gitkeep
+*.sqlite
+*.sqlite3
+
+# Environment / secrets – NEVER commit these
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Config with secrets (copy from .env.example instead)
+config/config.yml
+
+# TypeScript build info
+*.tsbuildinfo
+tsconfig.tsbuildinfo
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# OS artefacts
+.DS_Store
+Thumbs.db
+.Spotlight-V100
+.Trashes
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Vite cache
+.vite/
