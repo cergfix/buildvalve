@@ -77,6 +77,24 @@ Open **http://localhost:3000** and you're done.
 
 ---
 
+## Try It Locally (no config needed)
+
+A ready-made dev config with mock auth and mock GitLab is included in the `dev/` directory. One command to go from zero to a running dashboard:
+
+```bash
+./dev/start.sh
+```
+
+This starts a Docker container with:
+- **Mock auth** — click "Bypass Login (Dev)" to sign in as `alice@company.com`
+- **Mock GitLab** — pipeline triggers are simulated in-memory and auto-complete after ~15 seconds
+
+Open **http://localhost:3000** and click the login button.
+
+> You can edit `dev/config.yml` to add more projects or change the mock user — changes take effect on restart.
+
+---
+
 ## Build from Source
 
 ### Requirements
@@ -98,10 +116,10 @@ npm install
 Create a `config/config.yml` file (it's gitignored — never commit it):
 
 ```bash
-cp config/config.yml.example config/config.yml
+cp dev/config.yml config/config.yml
 ```
 
-Fill in your values — see the [Configuration](#configuration) section below.
+Edit `config/config.yml` with your values — see the [Configuration](#configuration) section below.
 
 ### 3. Run in development
 

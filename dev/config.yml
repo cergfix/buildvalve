@@ -1,0 +1,42 @@
+gitlab:
+  url: https://gitlab.example.com
+  service_account_token: glpat-test
+  mock: true
+
+admins:
+  - alice@company.com
+
+auth:
+  providers:
+    - type: mock
+      enabled: true
+      label: "Bypass Login (Dev)"
+      mock_user:
+        email: alice@company.com
+        groups:
+          - devops-team
+
+session:
+  secret: local-dev-secret-change-me
+  max_age: 86400
+
+permissions:
+  - users: [alice@company.com]
+    projects: [42]
+
+projects:
+  - id: 42
+    name: "My App"
+    description: "Main service"
+    pipelines:
+      - name: "Deploy to Staging"
+        ref: staging
+        variables:
+          - key: ENVIRONMENT
+            value: staging
+            locked: true
+          - key: VERSION
+            value: ""
+            locked: false
+            required: true
+            description: "Docker image tag to deploy"

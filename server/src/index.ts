@@ -54,7 +54,12 @@ const gitlab = config.gitlab.mock
 // Express app
 const app = express();
 
-app.use(helmet());
+app.use(
+  helmet({
+    contentSecurityPolicy:
+      process.env.NODE_ENV === "development" ? false : undefined,
+  })
+);
 app.use(morgan("short"));
 app.use(
   cors({
