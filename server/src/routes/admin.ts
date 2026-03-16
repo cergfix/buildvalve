@@ -6,12 +6,10 @@ import { requireAuth } from "../middleware/requireAuth.js";
 export function createAdminRouter(config: AppConfig): Router {
   const router = Router();
 
-  router.use(requireAuth);
-
   // Read-only view of the current loaded backend configuration
-  // Be careful: we should hide the session secret, service account token, 
+  // Be careful: we should hide the session secret, service account token,
   // SAML cert, Client Secret etc. before sending to the client!
-  router.get("/api/admin/config", (req, res) => {
+  router.get("/api/admin/config", requireAuth, (req, res) => {
     // Check if user is an admin
     const userEmail = req.session.user?.email;
     if (!config.admins || !config.admins.includes(userEmail!)) {
