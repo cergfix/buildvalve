@@ -441,11 +441,12 @@ jobs:
               # ── Local login: correct password ─────────────────────────
               print("--- Local login: correct password ---")
               try:
-                  # Clear and re-enter credentials
+                  # Refresh the page to get a clean form (avoids Selenium clear() + React controlled input issues)
+                  driver.get(f"{BASE}/login")
+                  wait.until(EC.presence_of_element_located((By.XPATH, "//input[@type='email']")))
+
                   email_input = driver.find_element(By.XPATH, "//input[@type='email']")
                   pass_input = driver.find_element(By.XPATH, "//input[@type='password']")
-                  email_input.clear()
-                  pass_input.clear()
                   email_input.send_keys("alice@company.com")
                   pass_input.send_keys("secret123")
 
