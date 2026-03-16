@@ -93,7 +93,7 @@ describe("AuthContext", () => {
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(result.current.externalLinks).toHaveLength(2);
-    expect(result.current.externalLinks[0]).toEqual({
+    expect(result.current.externalLinks![0]).toEqual({
       label: "Grafana",
       url: "https://grafana.example.com",
     });
