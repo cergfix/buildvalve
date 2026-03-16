@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { AppShell } from "./AppShell";
 
-(globalThis as any).__APP_VERSION__ = "0.0.0-test";
+(globalThis as unknown as Record<string, string>).__APP_VERSION__ = "0.0.0-test";
 
 const mockUser = { email: "alice@co.com", provider: "mock" };
 const mockLogout = vi.fn();

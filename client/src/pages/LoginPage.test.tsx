@@ -2,12 +2,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import type { ReactNode } from "react";
 import { LoginPage } from "./LoginPage";
 
-// Declare the global that Vite injects
-declare const globalThis: { __APP_VERSION__: string };
-(globalThis as any).__APP_VERSION__ = "0.0.0-test";
+(globalThis as unknown as Record<string, string>).__APP_VERSION__ = "0.0.0-test";
 
 // Mock AuthContext
 const mockCheckAuth = vi.fn();
