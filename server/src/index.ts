@@ -15,7 +15,9 @@ import { MockGitLabService } from "./services/mock-gitlab.js";
 import { createAuthRouter } from "./routes/auth.js";
 import { createPipelineRouter } from "./routes/pipelines.js";
 import { createAdminRouter } from "./routes/admin.js";
-import type { SamlProviderConfig, MockProviderConfig } from "./types/index.js";
+import type { SamlProviderConfig, OAuthProviderConfig, LocalProviderConfig, MockProviderConfig } from "./types/index.js";
+import { OAuthProvider } from "./services/auth/oauth-provider.js";
+import { LocalProvider } from "./services/auth/local-provider.js";
 import { MockProvider } from "./services/auth/mock-provider.js";
 import { logger } from "./utils/logger.js";
 
@@ -31,14 +33,20 @@ for (const providerConfig of config.auth.providers) {
   if (providerConfig.type === "saml") {
     const provider = new SamlProvider(providerConfig as SamlProviderConfig, config);
     registerProvider(provider);
-    logger.info(`Auth provider registered: ${providerConfig.label} (${providerConfig.type})`);
+  } else if (providerConfig.type === "github" || providerConfig.type === "google" || providerConfig.type === "gitlab") {
+    const provider = new OAuthProvider(providerConfig as OAuthProviderConfig, config);
+    registerProvider(provider);
+  } else if (providerConfig.type === "local") {
+    const provider = new LocalProvider(providerConfig as LocalProviderConfig, config);
+    registerProvider(provider);
   } else if (providerConfig.type === "mock") {
     const provider = new MockProvider(providerConfig as MockProviderConfig);
     registerProvider(provider);
-    logger.info(`Auth provider registered: ${providerConfig.label} (${providerConfig.type})`);
   } else {
     logger.warn(`Unknown auth provider type: ${providerConfig.type} — skipping`);
+    continue;
   }
+  logger.info(`Auth provider registered: ${providerConfig.label} (${providerConfig.type})`);
 }
 
 const providers = getAllProviders();

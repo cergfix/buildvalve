@@ -35,7 +35,7 @@ describe("AuthContext", () => {
 
   it("sets authenticated state on successful getMe", async () => {
     mockGetMe.mockResolvedValue({
-      user: { email: "a@b.com", username: "a", provider: "mock" },
+      user: { email: "a@b.com", provider: "mock" },
       projects: [{ id: 1, name: "P1", pipelines: [] }],
     });
 
@@ -59,7 +59,7 @@ describe("AuthContext", () => {
 
   it("logout clears data and redirects", async () => {
     mockGetMe.mockResolvedValue({
-      user: { email: "a@b.com", username: "a", provider: "mock" },
+      user: { email: "a@b.com", provider: "mock" },
       projects: [],
     });
     mockLogout.mockResolvedValue({ ok: true });
@@ -76,6 +76,52 @@ describe("AuthContext", () => {
     });
 
     expect(result.current.user).toBeNull();
+  });
+
+  it("exposes externalLinks from API response", async () => {
+    mockGetMe.mockResolvedValue({
+      user: { email: "a@b.com", provider: "mock" },
+      projects: [],
+      isAdmin: false,
+      externalLinks: [
+        { label: "Grafana", url: "https://grafana.example.com" },
+        { label: "Wiki", url: "https://wiki.example.com" },
+      ],
+    });
+
+    const { result } = renderHook(() => useAuth(), { wrapper });
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.externalLinks).toHaveLength(2);
+    expect(result.current.externalLinks[0]).toEqual({
+      label: "Grafana",
+      url: "https://grafana.example.com",
+    });
+  });
+
+  it("defaults externalLinks to empty array when not in response", async () => {
+    mockGetMe.mockResolvedValue({
+      user: { email: "a@b.com", provider: "mock" },
+      projects: [],
+    });
+
+    const { result } = renderHook(() => useAuth(), { wrapper });
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.externalLinks).toEqual([]);
+  });
+
+  it("exposes isAdmin from API response", async () => {
+    mockGetMe.mockResolvedValue({
+      user: { email: "a@b.com", provider: "mock" },
+      projects: [],
+      isAdmin: true,
+    });
+
+    const { result } = renderHook(() => useAuth(), { wrapper });
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.isAdmin).toBe(true);
   });
 
   it("throws when useAuth is used outside AuthProvider", () => {

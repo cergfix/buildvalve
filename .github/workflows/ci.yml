@@ -94,6 +94,7 @@ jobs:
             mock: true
           admins:
             - test@test.com
+            - alice@company.com
           auth:
             providers:
               - type: mock
@@ -102,6 +103,15 @@ jobs:
                 mock_user:
                   email: test@test.com
                   groups: [test]
+              - type: local
+                enabled: true
+                label: "Local Login"
+                users:
+                  - email: alice@company.com
+                    password: secret123
+                    groups: [devops]
+                  - email: noaccess@company.com
+                    password: pass456
           session:
             secret: smoke-test-secret-1234
             max_age: 3600
@@ -114,8 +124,13 @@ jobs:
                   ref: main
                   variables: []
           permissions:
-            - users: [test@test.com]
+            - users: [test@test.com, alice@company.com]
               projects: [1]
+          external_links:
+            - label: Grafana
+              url: https://grafana.example.com
+            - label: Wiki
+              url: https://wiki.example.com
           YAML
 
       - name: Start container
@@ -154,6 +169,9 @@ jobs:
           echo "$PROVIDERS" | grep -q '"type":"mock"'
           echo "$PROVIDERS" | grep -q '"label":"Mock Login"'
           echo "$PROVIDERS" | grep -q '"/api/auth/mock/login"'
+          echo "$PROVIDERS" | grep -q '"buttonLabel":"Sign in with Mock Login"'
+          echo "$PROVIDERS" | grep -q '"type":"local"'
+          echo "$PROVIDERS" | grep -q '"form":"credentials"'
 
       - name: "API: unauthenticated requests return 401"
         run: |
@@ -251,6 +269,53 @@ jobs:
           [ "$CODE" = "401" ] || { echo "FAIL: /api/auth/me returned $CODE after logout"; exit 1; }
           echo "OK: session invalidated after logout"
 
+      - name: "API: local login flow"
+        run: |
+          echo "--- POST /api/auth/local/login with valid credentials ---"
+          LOCAL_CJ=$(mktemp)
+          LOGIN=$(curl -s -c "$LOCAL_CJ" -w '\n%{http_code}' -X POST http://localhost:3000/api/auth/local/login \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"alice@company.com","password":"secret123"}')
+          CODE=$(echo "$LOGIN" | tail -1)
+          BODY=$(echo "$LOGIN" | head -1)
+          echo "Login response: $CODE $BODY"
+          [ "$CODE" = "200" ] || { echo "FAIL: local login returned $CODE"; exit 1; }
+          echo "$BODY" | grep -q '"ok":true'
+
+          echo "--- Verify session is valid after local login ---"
+          ME=$(curl -sf -b "$LOCAL_CJ" http://localhost:3000/api/auth/me)
+          echo "$ME"
+          echo "$ME" | grep -q '"email":"alice@company.com"'
+          echo "$ME" | grep -q '"provider":"local"'
+
+          echo "--- Verify external_links in /api/auth/me ---"
+          echo "$ME" | grep -q '"externalLinks"'
+          echo "$ME" | grep -q '"Grafana"'
+          echo "$ME" | grep -q '"Wiki"'
+
+          echo "--- POST /api/auth/local/login with wrong password ---"
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:3000/api/auth/local/login \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"alice@company.com","password":"wrong"}')
+          [ "$CODE" = "401" ] || { echo "FAIL: expected 401, got $CODE"; exit 1; }
+          echo "OK: wrong password → 401"
+
+          echo "--- POST /api/auth/local/login with missing fields ---"
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:3000/api/auth/local/login \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"alice@company.com"}')
+          [ "$CODE" = "400" ] || { echo "FAIL: expected 400, got $CODE"; exit 1; }
+          echo "OK: missing password → 400"
+
+          echo "--- POST /api/auth/local/login for user without permissions ---"
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:3000/api/auth/local/login \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"noaccess@company.com","password":"pass456"}')
+          [ "$CODE" = "403" ] || { echo "FAIL: expected 403, got $CODE"; exit 1; }
+          echo "OK: no permissions → 403"
+
+          rm -f "$LOCAL_CJ"
+
       - name: "API: authorization checks"
         run: |
           # Login fresh for auth tests
@@ -329,68 +394,172 @@ jobs:
               except:
                   fail("BuildValve branding not found on login page")
 
-              # Verify login button exists (button text is "Sign in with <label>")
+              # Verify both provider types are shown on login page
               try:
-                  login_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Sign in with')]")))
-                  print(f"OK: Login button found: '{login_btn.text}'")
+                  wait.until(EC.presence_of_element_located((By.XPATH, "//input[@type='email']")))
+                  print("OK: Local login email input found")
               except:
-                  fail("Login button not found")
-                  login_btn = None
+                  fail("Local login email input not found")
 
-              # ── Click login ────────────────────────────────────────────
-              if login_btn:
-                  print("--- Clicking login ---")
-                  login_btn.click()
-                  # Mock login redirects to / which should load the dashboard
+              try:
+                  wait.until(EC.presence_of_element_located((By.XPATH, "//input[@type='password']")))
+                  print("OK: Local login password input found")
+              except:
+                  fail("Local login password input not found")
+
+              try:
+                  mock_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Sign in with Mock Login')]")))
+                  print(f"OK: Mock login button found: '{mock_btn.text}'")
+              except:
+                  fail("Mock login button not found")
+                  mock_btn = None
+
+              # Verify "or" separator between form and OAuth providers
+              try:
+                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'or')]")))
+                  print("OK: 'or' separator visible between providers")
+              except:
+                  fail("'or' separator not found")
+
+              # ── Local login: wrong password ───────────────────────────
+              print("--- Local login: wrong password ---")
+              try:
+                  email_input = driver.find_element(By.XPATH, "//input[@type='email']")
+                  pass_input = driver.find_element(By.XPATH, "//input[@type='password']")
+                  submit_btn = driver.find_element(By.XPATH, "//button[@type='submit']")
+
+                  email_input.send_keys("alice@company.com")
+                  pass_input.send_keys("wrongpassword")
+                  submit_btn.click()
+
+                  # Should show error message
+                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(@class, 'text-red')]")))
+                  print("OK: Error message shown for wrong password")
+              except Exception as e:
+                  fail(f"Local login error test: {e}")
+
+              # ── Local login: correct password ─────────────────────────
+              print("--- Local login: correct password ---")
+              try:
+                  # Clear and re-enter credentials
+                  email_input = driver.find_element(By.XPATH, "//input[@type='email']")
+                  pass_input = driver.find_element(By.XPATH, "//input[@type='password']")
+                  email_input.clear()
+                  pass_input.clear()
+                  email_input.send_keys("alice@company.com")
+                  pass_input.send_keys("secret123")
+
+                  submit_btn = driver.find_element(By.XPATH, "//button[@type='submit']")
+                  submit_btn.click()
+
+                  # Should redirect away from login
                   wait.until(lambda d: "/login" not in d.current_url)
-                  print(f"After login URL: {driver.current_url}")
+                  print(f"After local login URL: {driver.current_url}")
+              except Exception as e:
+                  fail(f"Local login success test: {e}")
 
-                  # ── Dashboard ───────────────────────────────────────────
-                  print("--- Dashboard ---")
-                  try:
-                      wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Test Project')]")))
-                      print("OK: Project name visible on dashboard")
-                  except:
-                      fail("Project name not found on dashboard")
+              # ── Dashboard ───────────────────────────────────────────
+              print("--- Dashboard ---")
+              try:
+                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Test Project')]")))
+                  print("OK: Project name visible on dashboard")
+              except:
+                  fail("Project name not found on dashboard")
 
-                  try:
-                      wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Deploy')]")))
-                      print("OK: Pipeline name visible on dashboard")
-                  except:
-                      fail("Pipeline name not found on dashboard")
+              try:
+                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Deploy')]")))
+                  print("OK: Pipeline name visible on dashboard")
+              except:
+                  fail("Pipeline name not found on dashboard")
 
-                  # ── Navigate to pipeline launch ─────────────────────────
-                  print("--- Pipeline launch page ---")
-                  try:
-                      launch_link = wait.until(EC.element_to_be_clickable(
-                          (By.XPATH, "//a[contains(text(), 'Launch')] | //button[contains(text(), 'Launch')]")))
-                      launch_link.click()
-                      wait.until(EC.url_contains("/pipeline/"))
-                      print(f"Launch page URL: {driver.current_url}")
+              # ── External links in sidebar ──────────────────────────
+              print("--- External links ---")
+              try:
+                  grafana_link = wait.until(EC.presence_of_element_located((By.XPATH, "//a[contains(text(), 'Grafana')]")))
+                  href = grafana_link.get_attribute("href")
+                  target = grafana_link.get_attribute("target")
+                  assert href == "https://grafana.example.com", f"Grafana href wrong: {href}"
+                  assert target == "_blank", f"Grafana target wrong: {target}"
+                  print("OK: Grafana external link found with correct href and target")
+              except Exception as e:
+                  fail(f"Grafana external link: {e}")
 
-                      wait.until(EC.presence_of_element_located(
-                          (By.XPATH, "//button[contains(text(), 'Launch')] | //*[contains(text(), 'Deploy')]")))
-                      print("OK: Pipeline launch page loaded")
-                  except Exception as e:
-                      fail(f"Pipeline launch page: {e}")
+              try:
+                  wiki_link = wait.until(EC.presence_of_element_located((By.XPATH, "//a[contains(text(), 'Wiki')]")))
+                  href = wiki_link.get_attribute("href")
+                  assert href == "https://wiki.example.com", f"Wiki href wrong: {href}"
+                  print("OK: Wiki external link found with correct href")
+              except Exception as e:
+                  fail(f"Wiki external link: {e}")
 
-                  # ── Profile page ────────────────────────────────────────
-                  print("--- Profile page ---")
+              # ── Navigate to pipeline launch ─────────────────────────
+              print("--- Pipeline launch page ---")
+              try:
+                  launch_link = wait.until(EC.element_to_be_clickable(
+                      (By.XPATH, "//a[contains(text(), 'Launch')] | //button[contains(text(), 'Launch')]")))
+                  launch_link.click()
+                  wait.until(EC.url_contains("/pipeline/"))
+                  print(f"Launch page URL: {driver.current_url}")
+
+                  wait.until(EC.presence_of_element_located(
+                      (By.XPATH, "//button[contains(text(), 'Launch')] | //*[contains(text(), 'Deploy')]")))
+                  print("OK: Pipeline launch page loaded")
+              except Exception as e:
+                  fail(f"Pipeline launch page: {e}")
+
+              # ── Profile page ────────────────────────────────────────
+              print("--- Profile page ---")
+              driver.get(f"{BASE}/profile")
+              try:
+                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'alice@company.com')]")))
+                  print("OK: User email visible on profile page")
+              except:
+                  fail("User email not found on profile page")
+
+              # ── Admin page ──────────────────────────────────────────
+              print("--- Admin page ---")
+              driver.get(f"{BASE}/admin")
+              try:
+                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'REDACTED')]")))
+                  print("OK: Admin config page shows redacted values")
+              except:
+                  fail("Admin config page did not show redacted values")
+
+              # ── Logout and re-login with mock ───────────────────────
+              print("--- Logout ---")
+              try:
+                  driver.get(BASE)
+                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Pipelines')]")))
+                  logout_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Logout')]")))
+                  logout_btn.click()
+                  wait.until(EC.url_contains("/login"))
+                  print("OK: Logged out and redirected to login page")
+              except Exception as e:
+                  fail(f"Logout: {e}")
+
+              # ── Mock login button ───────────────────────────────────
+              print("--- Mock login via button ---")
+              try:
+                  mock_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Sign in with Mock Login')]")))
+                  mock_btn.click()
+                  wait.until(lambda d: "/login" not in d.current_url)
+                  print(f"After mock login URL: {driver.current_url}")
+
+                  # Verify mock user is logged in
                   driver.get(f"{BASE}/profile")
-                  try:
-                      wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'test@test.com')]")))
-                      print("OK: User email visible on profile page")
-                  except:
-                      fail("User email not found on profile page")
+                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'test@test.com')]")))
+                  print("OK: Mock login successful, test@test.com shown on profile")
+              except Exception as e:
+                  fail(f"Mock login: {e}")
 
-                  # ── Admin page ──────────────────────────────────────────
-                  print("--- Admin page ---")
-                  driver.get(f"{BASE}/admin")
-                  try:
-                      wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'REDACTED')]")))
-                      print("OK: Admin config page shows redacted values")
-                  except:
-                      fail("Admin config page did not show redacted values")
+              # ── Error message display ───────────────────────────────
+              print("--- Login page error messages ---")
+              try:
+                  driver.get(f"{BASE}/login?error=access_denied")
+                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Access denied')]")))
+                  print("OK: access_denied error message displayed")
+              except Exception as e:
+                  fail(f"Error message display: {e}")
 
           except Exception as e:
               fail(f"Unexpected error: {e}")

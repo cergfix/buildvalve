@@ -26,12 +26,10 @@ COPY --from=build /app/server/dist ./server/dist
 # Copy built client SPA
 COPY --from=build /app/client/dist ./client/dist
 
-# Config volume mount point
+# Config directory — extend this image and COPY your config.yml here
 RUN mkdir -p /app/config
-VOLUME /app/config
 
 ENV NODE_ENV=production
-ENV CONFIG_PATH=/app/config/config.yml
 ENV PORT=3000
 
 EXPOSE 3000

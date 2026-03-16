@@ -51,12 +51,6 @@ export class SamlProvider implements AuthProvider {
     const rawEmail = this.getAttr(profile, mapping.email);
     const email = (Array.isArray(rawEmail) ? rawEmail[0] : rawEmail) ?? profile.nameID ?? "";
 
-    const rawUsername = this.getAttr(profile, mapping.username);
-    const username =
-      (Array.isArray(rawUsername) ? rawUsername[0] : rawUsername) ??
-      email.split("@")[0] ??
-      "";
-
     let groups: string[] | undefined;
     if (mapping.groups) {
       const raw = this.getAttr(profile, mapping.groups);
@@ -65,7 +59,7 @@ export class SamlProvider implements AuthProvider {
       }
     }
 
-    return { email, username, provider: "saml", groups };
+    return { email, provider: "saml", groups };
   }
 
   private getAttr(profile: Profile, key: string): string | string[] | undefined {
@@ -98,10 +92,10 @@ export class SamlProvider implements AuthProvider {
         (err: Error | null, user: AuthUser | false) => {
           if (err) {
             console.error("SAML auth error:", err.message);
-            return res.redirect("/?error=saml_error");
+            return res.redirect("/login?error=saml_error");
           }
           if (!user) {
-            return res.redirect("/?error=saml_no_user");
+            return res.redirect("/login?error=no_user");
           }
 
           // Check if user has any permissions at all
@@ -114,14 +108,14 @@ export class SamlProvider implements AuthProvider {
           });
 
           if (!hasAnyAccess) {
-            return res.redirect("/?error=access_denied");
+            return res.redirect("/login?error=access_denied");
           }
 
           req.session.user = user;
           req.session.save((saveErr) => {
             if (saveErr) {
               console.error("Session save error:", saveErr);
-              return res.redirect("/?error=session_error");
+              return res.redirect("/login?error=session_error");
             }
             return res.redirect("/");
           });

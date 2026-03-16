@@ -4,9 +4,13 @@ import "express-session";
 
 export interface AuthUser {
   email: string;
-  username: string;
   provider: string;
   groups?: string[];
+}
+
+export interface ExternalLink {
+  label: string;
+  url: string;
 }
 
 // --- Config ---
@@ -42,38 +46,56 @@ export interface SamlProviderConfig {
   type: "saml";
   enabled: boolean;
   label: string;
+
   entry_point: string;
   issuer: string;
   callback_url: string;
   cert: string;
   attribute_mapping: {
-    username: string;
     email: string;
     groups?: string;
   };
 }
 
 export interface OAuthProviderConfig {
-  type: "github" | "gitlab";
+  type: "github" | "google" | "gitlab";
   enabled: boolean;
   label: string;
+
   client_id: string;
   client_secret: string;
-  [key: string]: unknown;
+  callback_url?: string;
+  scopes?: string;
+  base_url?: string; // GitLab self-hosted URL (defaults to https://gitlab.com)
+}
+
+export interface LocalUserConfig {
+  email: string;
+  password?: string;
+  password_hash?: string; // sha256 hex digest
+  groups?: string[];
+}
+
+export interface LocalProviderConfig {
+  type: "local";
+  enabled: boolean;
+  label: string;
+
+  users?: LocalUserConfig[];
 }
 
 export interface MockProviderConfig {
   type: "mock";
   enabled: boolean;
   label: string;
+
   mock_user: {
     email: string;
-    username: string;
     groups?: string[];
   };
 }
 
-export type AuthProviderConfig = SamlProviderConfig | OAuthProviderConfig | MockProviderConfig;
+export type AuthProviderConfig = SamlProviderConfig | OAuthProviderConfig | LocalProviderConfig | MockProviderConfig;
 
 export interface AppConfig {
   gitlab: {
@@ -93,6 +115,7 @@ export interface AppConfig {
   projects: ProjectConfig[];
   permissions: PermissionRule[];
   admins?: string[];
+  external_links?: ExternalLink[];
 }
 
 // --- Session augmentation ---

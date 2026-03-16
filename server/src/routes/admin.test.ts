@@ -18,7 +18,7 @@ function makeConfig(admins?: string[]): AppConfig {
 }
 
 function mockReqRes(email: string) {
-  const req = { session: { user: { email, username: "test", provider: "mock" } } } as any;
+  const req = { session: { user: { email, provider: "mock" } } } as any;
   const res = {
     status: vi.fn().mockReturnThis(),
     json: vi.fn().mockReturnThis(),

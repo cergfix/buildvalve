@@ -64,13 +64,18 @@ projects:
 
 See the full [Configuration](#configuration) section below for all options.
 
-**2. Run the container:**
+**2. Create a `Dockerfile`** that extends the base image:
+
+```dockerfile
+FROM ghcr.io/cergfix/buildvalve:latest
+COPY config.yml /app/config/config.yml
+```
+
+**3. Build and run:**
 
 ```bash
-docker run -d \
-  -v $(pwd)/config.yml:/app/config/config.yml:ro \
-  -p 3000:3000 \
-  ghcr.io/cergfix/buildvalve:latest
+docker build -t my-buildvalve .
+docker run -d -p 3000:3000 my-buildvalve
 ```
 
 Open **http://localhost:3000** and you're done.
@@ -85,13 +90,13 @@ A ready-made dev config with mock auth and mock GitLab is included in the `dev/`
 ./dev/start.sh
 ```
 
-This starts a Docker container with:
+This builds a derived Docker image from `dev/Dockerfile` (which copies `dev/config.yml` into the base image) and runs it with:
 - **Mock auth** — click "Bypass Login (Dev)" to sign in as `alice@company.com`
 - **Mock GitLab** — pipeline triggers are simulated in-memory and auto-complete after ~15 seconds
 
 Open **http://localhost:3000** and click the login button.
 
-> You can edit `dev/config.yml` to add more projects or change the mock user — changes take effect on restart.
+> You can edit `dev/config.yml` to add more projects or change the mock user — re-run `./dev/start.sh` to rebuild.
 
 ---
 
@@ -149,11 +154,9 @@ Set `NODE_ENV=production` in your environment to enable secure (HTTPS-only) sess
 
 ```bash
 docker build -t buildvalve .
-docker run -d \
-  -v $(pwd)/config/config.yml:/app/config/config.yml:ro \
-  -p 3000:3000 \
-  buildvalve
 ```
+
+Then create a derived image with your config (see [Quick Start with Docker](#quick-start-with-docker)) or set `CONFIG_PATH` in your environment for local testing.
 
 ---
 
@@ -297,7 +300,7 @@ projects:
 | `session.secret` | ✅ | Random string for signing session cookies |
 | `session.max_age` | | Session duration in seconds (default: 86400) |
 | `admins` | | List of emails that can view the Admin Settings page |
-| `auth.providers` | ✅ | At least one enabled auth provider |
+| `auth.providers` | ✅ | At least one enabled auth provider (`saml`, `github`, `google`, `gitlab`, `local`, `mock`) |
 | `permissions` | ✅ | Who can trigger which projects |
 | `projects` | ✅ | Project and pipeline definitions |
 
@@ -313,7 +316,27 @@ projects:
 
 ---
 
-## SAML Setup
+## Auth Providers
+
+BuildValve supports multiple auth providers. You can enable any combination — the login page renders a button for each OAuth/SSO provider and a form for local accounts.
+
+### SAML 2.0 (Okta, Azure AD, Keycloak, ADFS)
+
+```yaml
+auth:
+  providers:
+    - type: saml
+      enabled: true
+      label: "Company SSO"
+      entry_point: https://idp.example.com/sso/saml
+      issuer: https://buildvalve.example.com
+      callback_url: https://buildvalve.example.com/api/auth/saml/callback
+      cert: |
+        MIICpDCCAYwCCQDU+pQ4pHgSp...
+      attribute_mapping:
+        email: http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress
+        groups: http://schemas.xmlsoap.org/claims/Group
+```
 
 1. Register BuildValve as a SAML Service Provider in your IdP
 2. Set the **ACS URL** (callback) to: `https://your-buildvalve-host/api/auth/saml/callback`
@@ -323,16 +346,88 @@ projects:
 
 To get the SP metadata XML (useful for IdP setup): `GET /api/auth/saml/metadata`
 
----
+### GitHub
 
-## Mock Mode
-
-For local development without a real GitLab instance or SSO, enable both mocks:
+Create an OAuth App at **GitHub > Settings > Developer settings > OAuth Apps**.
 
 ```yaml
-gitlab:
-  mock: true        # Pipeline triggers are simulated; state is in-memory
+auth:
+  providers:
+    - type: github
+      enabled: true
+      label: "GitHub"
+      client_id: "your-github-client-id"
+      client_secret: "your-github-client-secret"
+      callback_url: https://buildvalve.example.com/api/auth/github/callback  # optional, auto-detected
+```
 
+Set the callback URL in your GitHub OAuth App to `https://your-host/api/auth/github/callback`.
+
+### Google
+
+Create credentials at **Google Cloud Console > APIs & Services > Credentials > OAuth 2.0 Client IDs**.
+
+```yaml
+auth:
+  providers:
+    - type: google
+      enabled: true
+      label: "Google"
+      client_id: "your-google-client-id"
+      client_secret: "your-google-client-secret"
+      callback_url: https://buildvalve.example.com/api/auth/google/callback  # optional
+```
+
+Set the authorized redirect URI in Google Cloud to `https://your-host/api/auth/google/callback`.
+
+### GitLab
+
+Create an application at **GitLab > User Settings > Applications** (or Admin > Applications for instance-wide).
+
+```yaml
+auth:
+  providers:
+    - type: gitlab
+      enabled: true
+      label: "GitLab"
+      client_id: "your-gitlab-app-id"
+      client_secret: "your-gitlab-app-secret"
+      base_url: https://gitlab.example.com    # optional, defaults to https://gitlab.com
+      callback_url: https://buildvalve.example.com/api/auth/gitlab/callback  # optional
+```
+
+Set the callback URL in your GitLab application to `https://your-host/api/auth/gitlab/callback`. Required scope: `read_user`.
+
+### Local Users
+
+Define simple username/password accounts directly in the config. Useful for small teams or environments without SSO.
+
+```yaml
+auth:
+  providers:
+    - type: local
+      enabled: true
+      label: "Local Account"
+      users:
+        - email: alice@company.com
+          username: alice
+          password: changeme             # plain text (dev only)
+          groups: [devops-team]
+
+        - email: bob@company.com
+          username: bob
+          password_hash: "5e884898da..."  # sha256 hex digest of password
+          groups: [devops-team]
+```
+
+For production, use `password_hash` (SHA-256 hex digest) instead of `password`:
+```bash
+echo -n "your-password" | shasum -a 256
+```
+
+### Mock (dev only)
+
+```yaml
 auth:
   providers:
     - type: mock

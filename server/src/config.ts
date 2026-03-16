@@ -1,5 +1,4 @@
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import yaml from "js-yaml";
 import Ajv, { type ErrorObject } from "ajv";
 import type { AppConfig } from "./types/index.js";
@@ -29,14 +28,32 @@ const schema = {
             type: "object",
             required: ["type", "enabled", "label"],
             properties: {
-              type: { type: "string", enum: ["saml", "github", "gitlab", "mock"] },
+              type: { type: "string", enum: ["saml", "github", "google", "gitlab", "local", "mock"] },
               enabled: { type: "boolean" },
               label: { type: "string" },
+
+              client_id: { type: "string" },
+              client_secret: { type: "string" },
+              callback_url: { type: "string" },
+              scopes: { type: "string" },
+              base_url: { type: "string" },
+              users: {
+                type: "array",
+                items: {
+                  type: "object",
+                  required: ["email"],
+                  properties: {
+                    email: { type: "string" },
+                    password: { type: "string" },
+                    password_hash: { type: "string" },
+                    groups: { type: "array", items: { type: "string" } },
+                  },
+                },
+              },
               mock_user: {
                 type: "object",
                 properties: {
                   email: { type: "string" },
-                  username: { type: "string" },
                   groups: { type: "array", items: { type: "string"} }
                 }
               }
@@ -104,11 +121,22 @@ const schema = {
         },
       },
     },
+    external_links: {
+      type: "array",
+      items: {
+        type: "object",
+        required: ["label", "url"],
+        properties: {
+          label: { type: "string" },
+          url: { type: "string" },
+        },
+      },
+    },
   },
 };
 
 export function loadConfig(configPath?: string): AppConfig {
-  const path = configPath ?? resolve(process.cwd(), "../config/config.yml");
+  const path = configPath ?? "/app/config/config.yml";
 
   let raw: string;
   try {
