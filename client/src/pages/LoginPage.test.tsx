@@ -105,13 +105,12 @@ describe("LoginPage", () => {
     });
   });
 
-  it("submits local login form and calls checkAuth on success", async () => {
+  it("submits local login form and redirects on success", async () => {
     const user = userEvent.setup();
     mockGetProviders.mockResolvedValue([
       { type: "local", label: "Local Login", buttonLabel: "Sign in", loginUrl: "/api/auth/local/login", form: "credentials" },
     ]);
     mockFetchApi.mockResolvedValue({ ok: true });
-    mockCheckAuth.mockResolvedValue(undefined);
 
     renderPage();
 
@@ -128,7 +127,6 @@ describe("LoginPage", () => {
         method: "POST",
         body: JSON.stringify({ email: "alice@co.com", password: "secret123" }),
       });
-      expect(mockCheckAuth).toHaveBeenCalled();
     });
   });
 

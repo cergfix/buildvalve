@@ -9,7 +9,6 @@ import { Input } from "../components/ui/input";
 import { LogIn, AlertCircle } from "lucide-react";
 
 function LocalLoginForm({ provider }: { provider: ProviderInfo }) {
-  const { checkAuth } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +24,7 @@ function LocalLoginForm({ provider }: { provider: ProviderInfo }) {
         method: "POST",
         body: JSON.stringify({ email, password }),
       });
-      await checkAuth();
+      window.location.href = "/";
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Login failed";
       setError(msg);
@@ -86,7 +85,7 @@ export function LoginPage() {
   }, []);
 
   if (isLoading) return <div className="flex h-screen items-center justify-center">Loading...</div>;
-  if (isAuthenticated) return <Navigate to="/" replace />;
+  if (isAuthenticated && !urlError) return <Navigate to="/" replace />;
 
   const oauthProviders = providers.filter((p) => !p.form);
   const formProviders = providers.filter((p) => p.form === "credentials");
