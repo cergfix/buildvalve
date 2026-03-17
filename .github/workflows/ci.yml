@@ -476,7 +476,7 @@ jobs:
               # ── External links in sidebar ──────────────────────────
               print("--- External links ---")
               try:
-                  grafana_link = wait.until(EC.presence_of_element_located((By.XPATH, "//a[contains(text(), 'Grafana')]")))
+                  grafana_link = wait.until(EC.presence_of_element_located((By.XPATH, "//a[contains(., 'Grafana')]")))
                   href = grafana_link.get_attribute("href")
                   target = grafana_link.get_attribute("target")
                   assert href == "https://grafana.example.com", f"Grafana href wrong: {href}"
@@ -486,7 +486,7 @@ jobs:
                   fail(f"Grafana external link: {e}")
 
               try:
-                  wiki_link = wait.until(EC.presence_of_element_located((By.XPATH, "//a[contains(text(), 'Wiki')]")))
+                  wiki_link = wait.until(EC.presence_of_element_located((By.XPATH, "//a[contains(., 'Wiki')]")))
                   href = wiki_link.get_attribute("href")
                   assert href == "https://wiki.example.com", f"Wiki href wrong: {href}"
                   print("OK: Wiki external link found with correct href")
@@ -531,7 +531,7 @@ jobs:
               try:
                   driver.get(BASE)
                   wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Pipelines')]")))
-                  logout_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Logout')]")))
+                  logout_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Logout')]")))
                   logout_btn.click()
                   wait.until(EC.url_contains("/login"))
                   print("OK: Logged out and redirected to login page")
