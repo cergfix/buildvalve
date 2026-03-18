@@ -72,7 +72,7 @@ export function PipelinesPage() {
               <div className="border-b-[1.5px] border-slate-200 dark:border-slate-700 pb-2 mb-4">
               <h3 className="text-xl font-bold flex items-center gap-2">
                 {project.name}
-                <ProviderBadge type={(project as Record<string, unknown>).providerType as string} />
+                <ProviderBadge type={(project as unknown as { providerType?: string }).providerType} />
               </h3>
               {project.description && <p className="text-slate-500 mt-1">{project.description}</p>}
             </div>

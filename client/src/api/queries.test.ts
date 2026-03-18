@@ -43,20 +43,20 @@ describe("pipelinesApi", () => {
   });
 
   it("trigger sends POST with correct body", async () => {
-    await pipelinesApi.trigger(42, "deploy", { ENV: "prod" });
+    await pipelinesApi.trigger("42", "deploy", { ENV: "prod" });
     expect(fetchApi).toHaveBeenCalledWith("/api/pipelines/trigger", {
       method: "POST",
-      body: JSON.stringify({ projectId: 42, pipelineName: "deploy", variables: { ENV: "prod" } }),
+      body: JSON.stringify({ projectId: "42", pipelineName: "deploy", variables: { ENV: "prod" } }),
     });
   });
 
   it("getPipeline calls correct endpoint", async () => {
-    await pipelinesApi.getPipeline(5, 100);
+    await pipelinesApi.getPipeline("5", "100");
     expect(fetchApi).toHaveBeenCalledWith("/api/pipelines/5/100");
   });
 
   it("getHistory encodes ref parameter", async () => {
-    await pipelinesApi.getHistory(5, "feature/branch");
+    await pipelinesApi.getHistory("5", "feature/branch");
     expect(fetchApi).toHaveBeenCalledWith(
       "/api/pipelines/5/history?ref=feature%2Fbranch"
     );
