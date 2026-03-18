@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Outlet, Navigate, NavLink } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
-import { LayoutDashboard, User, Settings, LogOut, ChevronLeft, ChevronRight, ExternalLink } from "lucide-react";
+import { GitBranch, User, Settings, LogOut, ChevronLeft, ChevronRight, ExternalLink } from "lucide-react";
 
 export function AppShell() {
   const { user, logout, isLoading, isAdmin, externalLinks } = useAuth();
@@ -16,7 +16,7 @@ export function AppShell() {
   }
 
   const navItems = [
-    { name: "Pipelines", to: "/", icon: LayoutDashboard },
+    { name: "Pipelines", to: "/", icon: GitBranch },
     { name: "Profile", to: "/profile", icon: User },
   ];
 

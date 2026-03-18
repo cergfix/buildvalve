@@ -13,13 +13,13 @@ vi.mock("../utils/logger.js", () => ({
 
 function makeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
-    gitlab: { url: "https://gitlab.example.com", service_account_token: "tok" },
+    ci_providers: [{ name: "default", type: "gitlab", url: "https://gitlab.example.com", token: "tok" }],
     auth: { providers: [] },
     session: { secret: "testsecret", max_age: 3600 },
     projects: [
-      { id: 1, name: "P1", pipelines: [{ name: "deploy", ref: "main", variables: [] }] },
+      { id: "1", name: "P1", provider: "default", external_id: "1", pipelines: [{ name: "deploy", ref: "main", variables: [] }] },
     ],
-    permissions: [{ users: ["alice@co.com"], projects: [1] }],
+    permissions: [{ users: ["alice@co.com"], projects: ["1"] }],
     ...overrides,
   };
 }

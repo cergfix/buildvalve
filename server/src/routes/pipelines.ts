@@ -1,17 +1,18 @@
 import { Router } from "express";
 import type { AppConfig, PipelineConfig, VariableConfig } from "../types/index.js";
-import { GitLabService, GitLabApiError } from "../services/gitlab.js";
+import { getCIProvider } from "../services/ci/index.js";
+import { CIProviderError } from "../services/ci/types.js";
 import { isAuthorized, getAllowedProjectIds } from "../services/permissions.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { LRUCache } from "lru-cache";
 import { logger } from "../utils/logger.js";
 
-const recentPipelinesCache = new LRUCache<number, any>({
+const recentPipelinesCache = new LRUCache<string, any>({
   max: 100,
   ttl: 1000 * 10, // 10 seconds
 });
 
-export function createPipelineRouter(config: AppConfig, gitlab: GitLabService): Router {
+export function createPipelineRouter(config: AppConfig): Router {
   const router = Router();
 
   router.use("/api/pipelines", requireAuth);
@@ -27,6 +28,8 @@ export function createPipelineRouter(config: AppConfig, gitlab: GitLabService): 
         id: p.id,
         name: p.name,
         description: p.description,
+        provider: p.provider,
+        providerType: config.ci_providers.find((cp) => cp.name === p.provider)?.type,
         pipelines: p.pipelines,
       }));
 
@@ -37,7 +40,7 @@ export function createPipelineRouter(config: AppConfig, gitlab: GitLabService): 
   router.post("/api/pipelines/trigger", async (req, res) => {
     const user = req.session.user!;
     const { projectId, pipelineName, variables } = req.body as {
-      projectId: number;
+      projectId: string;
       pipelineName: string;
       variables?: Record<string, string>;
     };
@@ -47,13 +50,11 @@ export function createPipelineRouter(config: AppConfig, gitlab: GitLabService): 
       return;
     }
 
-    // Check permission
     if (!isAuthorized(user, projectId, config)) {
       res.status(403).json({ error: "Not authorized for this project" });
       return;
     }
 
-    // Find project and pipeline config
     const project = config.projects.find((p) => p.id === projectId);
     if (!project) {
       res.status(404).json({ error: "Project not found in config" });
@@ -66,34 +67,44 @@ export function createPipelineRouter(config: AppConfig, gitlab: GitLabService): 
       return;
     }
 
-    // Validate variables
+    const provider = getCIProvider(project.provider);
+    if (!provider) {
+      res.status(500).json({ error: `CI provider "${project.provider}" not configured` });
+      return;
+    }
+
     const validationError = validateVariables(pipelineConfig, variables ?? {});
     if (validationError) {
       res.status(400).json({ error: validationError });
       return;
     }
 
-    // Build final variables: config defaults merged with user values
     const finalVars = buildFinalVariables(pipelineConfig.variables, variables ?? {});
 
     try {
-      const pipeline = await gitlab.triggerPipeline(projectId, pipelineConfig.ref, finalVars);
+      const pipeline = await provider.triggerPipeline(
+        project.external_id,
+        pipelineConfig.ref,
+        finalVars,
+        pipelineConfig.workflow_id
+      );
       logger.info({
         event: "pipeline_triggered",
         user_email: user.email,
         project_id: projectId,
+        provider: provider.type,
         pipeline_name: pipelineName,
-        gitlab_pipeline_id: pipeline.id,
-        variables: finalVars
+        ci_pipeline_id: pipeline.id,
+        variables: finalVars,
       });
       res.json(pipeline);
     } catch (err) {
-      if (err instanceof GitLabApiError) {
-        console.error(
-          `GitLab error triggering pipeline: project=${projectId} pipeline="${pipelineName}" status=${err.status}`
+      if (err instanceof CIProviderError) {
+        logger.error(
+          `${provider.type} error triggering pipeline: project=${projectId} pipeline="${pipelineName}" status=${err.status}`
         );
         res.status(err.status >= 500 ? 502 : err.status).json({
-          error: "GitLab API error",
+          error: `${provider.type} API error`,
           details: err.message,
         });
         return;
@@ -106,24 +117,26 @@ export function createPipelineRouter(config: AppConfig, gitlab: GitLabService): 
   router.get("/api/pipelines/recent", async (req, res) => {
     const user = req.session.user!;
     const allowedIds = getAllowedProjectIds(user, config);
-    const configuredIds = config.projects.filter((p) => allowedIds.has(p.id)).map((p) => p.id);
+    const allowedProjects = config.projects.filter((p) => allowedIds.has(p.id));
 
     try {
       const results = await Promise.all(
-        configuredIds.map(async (projectId) => {
-          const project = config.projects.find((p) => p.id === projectId)!;
-          let pipelines = recentPipelinesCache.get(projectId);
+        allowedProjects.map(async (project) => {
+          const provider = getCIProvider(project.provider);
+          if (!provider) return { projectId: project.id, projectName: project.name, pipelines: [] };
+
+          let pipelines = recentPipelinesCache.get(project.id);
           if (!pipelines) {
-            pipelines = await gitlab.listPipelines(projectId, { per_page: 10 });
-            recentPipelinesCache.set(projectId, pipelines);
+            pipelines = await provider.listPipelines(project.external_id, { per_page: 10 });
+            recentPipelinesCache.set(project.id, pipelines);
           }
-          return { projectId, projectName: project.name, pipelines };
+          return { projectId: project.id, projectName: project.name, pipelines };
         })
       );
       res.json(results);
     } catch (err) {
-      if (err instanceof GitLabApiError) {
-        res.status(502).json({ error: "GitLab API error", details: err.message });
+      if (err instanceof CIProviderError) {
+        res.status(502).json({ error: "CI provider error", details: err.message });
         return;
       }
       throw err;
@@ -133,7 +146,7 @@ export function createPipelineRouter(config: AppConfig, gitlab: GitLabService): 
   // Pipeline execution history (filtered by ref)
   router.get("/api/pipelines/:projectId/history", async (req, res) => {
     const user = req.session.user!;
-    const projectId = Number(req.params.projectId);
+    const projectId = req.params.projectId;
     const ref = req.query.ref as string;
 
     if (!isAuthorized(user, projectId, config)) {
@@ -141,14 +154,25 @@ export function createPipelineRouter(config: AppConfig, gitlab: GitLabService): 
       return;
     }
 
+    const project = config.projects.find((p) => p.id === projectId);
+    if (!project) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+
+    const provider = getCIProvider(project.provider);
+    if (!provider) {
+      res.status(500).json({ error: `CI provider "${project.provider}" not configured` });
+      return;
+    }
+
     try {
-      // Fetch up to 50 pipelines for this project and ref
-      const pipelines = await gitlab.listPipelines(projectId, { per_page: 50, ref });
+      const pipelines = await provider.listPipelines(project.external_id, { per_page: 50, ref });
       res.json(pipelines);
     } catch (err) {
-      if (err instanceof GitLabApiError) {
+      if (err instanceof CIProviderError) {
         res.status(err.status >= 500 ? 502 : err.status).json({
-          error: "GitLab API error",
+          error: "CI provider error",
           details: err.message,
         });
         return;
@@ -160,24 +184,36 @@ export function createPipelineRouter(config: AppConfig, gitlab: GitLabService): 
   // Single pipeline details
   router.get("/api/pipelines/:projectId/:pipelineId", async (req, res) => {
     const user = req.session.user!;
-    const projectId = Number(req.params.projectId);
-    const pipelineId = Number(req.params.pipelineId);
+    const projectId = req.params.projectId;
+    const pipelineId = req.params.pipelineId;
 
     if (!isAuthorized(user, projectId, config)) {
       res.status(403).json({ error: "Not authorized for this project" });
       return;
     }
 
+    const project = config.projects.find((p) => p.id === projectId);
+    if (!project) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+
+    const provider = getCIProvider(project.provider);
+    if (!provider) {
+      res.status(500).json({ error: `CI provider "${project.provider}" not configured` });
+      return;
+    }
+
     try {
       const [pipeline, jobs] = await Promise.all([
-        gitlab.getPipeline(projectId, pipelineId),
-        gitlab.getPipelineJobs(projectId, pipelineId),
+        provider.getPipeline(project.external_id, pipelineId),
+        provider.getPipelineJobs(project.external_id, pipelineId),
       ]);
       res.json({ pipeline, jobs });
     } catch (err) {
-      if (err instanceof GitLabApiError) {
+      if (err instanceof CIProviderError) {
         res.status(err.status >= 500 ? 502 : err.status).json({
-          error: "GitLab API error",
+          error: "CI provider error",
           details: err.message,
         });
         return;
@@ -189,21 +225,33 @@ export function createPipelineRouter(config: AppConfig, gitlab: GitLabService): 
   // Get job trace logs
   router.get("/api/pipelines/:projectId/jobs/:jobId/trace", async (req, res) => {
     const user = req.session.user!;
-    const projectId = Number(req.params.projectId);
-    const jobId = Number(req.params.jobId);
+    const projectId = req.params.projectId;
+    const jobId = req.params.jobId;
 
     if (!isAuthorized(user, projectId, config)) {
       res.status(403).json({ error: "Not authorized for this project" });
       return;
     }
 
+    const project = config.projects.find((p) => p.id === projectId);
+    if (!project) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+
+    const provider = getCIProvider(project.provider);
+    if (!provider) {
+      res.status(500).json({ error: `CI provider "${project.provider}" not configured` });
+      return;
+    }
+
     try {
-      const trace = await gitlab.getJobTrace(projectId, jobId);
+      const trace = await provider.getJobTrace(project.external_id, jobId);
       res.type("text/plain").send(trace);
     } catch (err) {
-      if (err instanceof GitLabApiError) {
+      if (err instanceof CIProviderError) {
         res.status(err.status >= 500 ? 502 : err.status).json({
-          error: "GitLab API error",
+          error: "CI provider error",
           details: err.message,
         });
         return;
@@ -220,12 +268,10 @@ function validateVariables(
   userVars: Record<string, string>
 ): string | null {
   for (const varConfig of pipelineConfig.variables) {
-    // Check locked variables aren't being overridden
     if (varConfig.locked && varConfig.key in userVars && userVars[varConfig.key] !== varConfig.value) {
       return `Variable "${varConfig.key}" is locked and cannot be changed`;
     }
 
-    // Check required variables are provided
     if (varConfig.required && !varConfig.locked) {
       const value = userVars[varConfig.key] ?? varConfig.value;
       if (!value) {
@@ -234,7 +280,6 @@ function validateVariables(
     }
   }
 
-  // Check for unknown variables
   const knownKeys = new Set(pipelineConfig.variables.map((v) => v.key));
   for (const key of Object.keys(userVars)) {
     if (!knownKeys.has(key)) {

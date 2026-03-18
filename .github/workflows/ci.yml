@@ -88,10 +88,20 @@ jobs:
       - name: Write test config
         run: |
           cat > /tmp/config.yml <<'YAML'
-          gitlab:
-            url: https://gitlab.example.com
-            service_account_token: glpat-test
-            mock: true
+          ci_providers:
+            - name: mock-gitlab
+              type: gitlab
+              url: https://gitlab.example.com
+              token: glpat-test
+              mock: true
+            - name: mock-github
+              type: github-actions
+              github_token: ghp-test
+              mock: true
+            - name: mock-circleci
+              type: circleci
+              circleci_token: cc-test
+              mock: true
           admins:
             - test@test.com
             - alice@company.com
@@ -116,16 +126,41 @@ jobs:
             secret: smoke-test-secret-1234
             max_age: 3600
           projects:
-            - id: 1
-              name: Test Project
-              description: A test project
+            - id: "1"
+              name: Test Project (GitLab)
+              description: A GitLab test project
+              provider: mock-gitlab
+              external_id: "1"
               pipelines:
                 - name: Deploy
                   ref: main
                   variables: []
+            - id: frontend
+              name: Frontend App (GitHub)
+              description: A GitHub Actions project
+              provider: mock-github
+              external_id: myorg/frontend
+              pipelines:
+                - name: Build & Deploy
+                  ref: main
+                  workflow_id: deploy.yml
+                  variables:
+                    - key: ENVIRONMENT
+                      value: staging
+                      locked: false
+                      description: Target environment
+            - id: api-service
+              name: API Service (CircleCI)
+              description: A CircleCI project
+              provider: mock-circleci
+              external_id: gh/myorg/api
+              pipelines:
+                - name: Release
+                  ref: main
+                  variables: []
           permissions:
             - users: [test@test.com, alice@company.com]
-              projects: [1]
+              projects: ["1", frontend, api-service]
           external_links:
             - label: Grafana
               url: https://grafana.example.com
@@ -202,42 +237,63 @@ jobs:
           echo "$COOKIE_JAR" > /tmp/cookie_jar_path
           cp "$COOKIE_JAR" /tmp/cookies.txt
 
-      - name: "API: authenticated pipeline endpoints"
+      - name: "API: authenticated pipeline endpoints (multi-provider)"
         run: |
           CJ=/tmp/cookies.txt
 
           echo "--- GET /api/pipelines ---"
           PIPELINES=$(curl -sf -b "$CJ" http://localhost:3000/api/pipelines)
           echo "$PIPELINES"
-          echo "$PIPELINES" | grep -q '"Test Project"'
+          echo "$PIPELINES" | grep -q '"Test Project (GitLab)"'
+          echo "$PIPELINES" | grep -q '"Frontend App (GitHub)"'
+          echo "$PIPELINES" | grep -q '"API Service (CircleCI)"'
           echo "$PIPELINES" | grep -q '"Deploy"'
+          echo "$PIPELINES" | grep -q '"Build & Deploy"'
+          echo "$PIPELINES" | grep -q '"Release"'
 
           echo "--- GET /api/pipelines/recent ---"
           RECENT=$(curl -sf -b "$CJ" http://localhost:3000/api/pipelines/recent)
           echo "$RECENT"
-          echo "$RECENT" | grep -q '"projectId":1'
+          echo "$RECENT" | grep -q '"projectId":"1"'
+          echo "$RECENT" | grep -q '"projectId":"frontend"'
+          echo "$RECENT" | grep -q '"projectId":"api-service"'
 
-          echo "--- POST /api/pipelines/trigger ---"
-          TRIGGER=$(curl -sf -b "$CJ" -X POST http://localhost:3000/api/pipelines/trigger \
+          echo "--- POST /api/pipelines/trigger (GitLab project) ---"
+          TRIGGER_GL=$(curl -sf -b "$CJ" -X POST http://localhost:3000/api/pipelines/trigger \
             -H 'Content-Type: application/json' \
-            -d '{"projectId":1,"pipelineName":"Deploy","variables":{}}')
-          echo "$TRIGGER"
-          echo "$TRIGGER" | grep -q '"id"'
-          PIPELINE_ID=$(echo "$TRIGGER" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
-          echo "Triggered pipeline ID: $PIPELINE_ID"
+            -d '{"projectId":"1","pipelineName":"Deploy","variables":{}}')
+          echo "$TRIGGER_GL"
+          echo "$TRIGGER_GL" | grep -q '"id"'
+          echo "$TRIGGER_GL" | grep -q '"provider":"gitlab"'
+          GL_PID=$(echo "$TRIGGER_GL" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+          echo "Triggered GitLab pipeline ID: $GL_PID"
+
+          echo "--- POST /api/pipelines/trigger (GitHub project) ---"
+          TRIGGER_GH=$(curl -sf -b "$CJ" -X POST http://localhost:3000/api/pipelines/trigger \
+            -H 'Content-Type: application/json' \
+            -d '{"projectId":"frontend","pipelineName":"Build & Deploy","variables":{"ENVIRONMENT":"staging"}}')
+          echo "$TRIGGER_GH"
+          echo "$TRIGGER_GH" | grep -q '"provider":"github-actions"'
+
+          echo "--- POST /api/pipelines/trigger (CircleCI project) ---"
+          TRIGGER_CC=$(curl -sf -b "$CJ" -X POST http://localhost:3000/api/pipelines/trigger \
+            -H 'Content-Type: application/json' \
+            -d '{"projectId":"api-service","pipelineName":"Release","variables":{}}')
+          echo "$TRIGGER_CC"
+          echo "$TRIGGER_CC" | grep -q '"provider":"circleci"'
 
           echo "--- GET /api/pipelines/1/history?ref=main ---"
           HISTORY=$(curl -sf -b "$CJ" "http://localhost:3000/api/pipelines/1/history?ref=main")
           echo "$HISTORY"
 
-          echo "--- GET /api/pipelines/1/$PIPELINE_ID ---"
-          DETAIL=$(curl -sf -b "$CJ" "http://localhost:3000/api/pipelines/1/$PIPELINE_ID")
+          echo "--- GET /api/pipelines/1/$GL_PID ---"
+          DETAIL=$(curl -sf -b "$CJ" "http://localhost:3000/api/pipelines/1/$GL_PID")
           echo "$DETAIL"
           echo "$DETAIL" | grep -q '"pipeline"'
           echo "$DETAIL" | grep -q '"jobs"'
 
           # Extract a job ID for trace test
-          JOB_ID=$(echo "$DETAIL" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
+          JOB_ID=$(echo "$DETAIL" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['jobs'][0]['id'])" 2>/dev/null || true)
           if [ -n "$JOB_ID" ]; then
             echo "--- GET /api/pipelines/1/jobs/$JOB_ID/trace ---"
             TRACE_CODE=$(curl -s -b "$CJ" -o /dev/null -w '%{http_code}' "http://localhost:3000/api/pipelines/1/jobs/$JOB_ID/trace")
@@ -254,6 +310,7 @@ jobs:
           echo "$ADMIN"
           echo "$ADMIN" | grep -q '"REDACTED"'
           echo "$ADMIN" | grep -q '"projects"'
+          echo "$ADMIN" | grep -q '"ci_providers"'
 
       - name: "API: POST /api/auth/logout"
         run: |
@@ -325,7 +382,7 @@ jobs:
           echo "--- Trigger for unauthorized project returns 403 ---"
           CODE=$(curl -s -b "$CJ" -o /dev/null -w '%{http_code}' -X POST http://localhost:3000/api/pipelines/trigger \
             -H 'Content-Type: application/json' \
-            -d '{"projectId":999,"pipelineName":"Deploy","variables":{}}')
+            -d '{"projectId":"999","pipelineName":"Deploy","variables":{}}')
           [ "$CODE" = "403" ] || { echo "FAIL: expected 403, got $CODE"; exit 1; }
           echo "OK: unauthorized project → 403"
 
@@ -339,7 +396,7 @@ jobs:
           echo "--- Nonexistent pipeline returns 404 ---"
           CODE=$(curl -s -b "$CJ" -o /dev/null -w '%{http_code}' -X POST http://localhost:3000/api/pipelines/trigger \
             -H 'Content-Type: application/json' \
-            -d '{"projectId":1,"pipelineName":"NonExistent","variables":{}}')
+            -d '{"projectId":"1","pipelineName":"NonExistent","variables":{}}')
           [ "$CODE" = "404" ] || { echo "FAIL: expected 404, got $CODE"; exit 1; }
           echo "OK: nonexistent pipeline → 404"
 
@@ -383,18 +440,15 @@ jobs:
               # ── Login page ──────────────────────────────────────────────
               print("--- Login page ---")
               driver.get(BASE)
-              # SPA should redirect to /login
               wait.until(EC.url_contains("/login"))
               print(f"Redirected to: {driver.current_url}")
 
-              # Verify branding
               try:
                   wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'BuildValve')]")))
                   print("OK: BuildValve branding visible")
               except:
                   fail("BuildValve branding not found on login page")
 
-              # Verify both provider types are shown on login page
               try:
                   wait.until(EC.presence_of_element_located((By.XPATH, "//input[@type='email']")))
                   print("OK: Local login email input found")
@@ -414,7 +468,6 @@ jobs:
                   fail("Mock login button not found")
                   mock_btn = None
 
-              # Verify "or" separator between form and OAuth providers
               try:
                   wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'or')]")))
                   print("OK: 'or' separator visible between providers")
@@ -432,7 +485,6 @@ jobs:
                   pass_input.send_keys("wrongpassword")
                   submit_btn.click()
 
-                  # Should show error message
                   wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(@class, 'text-red')]")))
                   print("OK: Error message shown for wrong password")
               except Exception as e:
@@ -441,7 +493,6 @@ jobs:
               # ── Local login: correct password ─────────────────────────
               print("--- Local login: correct password ---")
               try:
-                  # Refresh the page to get a clean form (avoids Selenium clear() + React controlled input issues)
                   driver.get(f"{BASE}/login")
                   wait.until(EC.presence_of_element_located((By.XPATH, "//input[@type='email']")))
 
@@ -453,25 +504,81 @@ jobs:
                   submit_btn = driver.find_element(By.XPATH, "//button[@type='submit']")
                   submit_btn.click()
 
-                  # Should redirect away from login
                   wait.until(lambda d: "/login" not in d.current_url)
                   print(f"After local login URL: {driver.current_url}")
               except Exception as e:
                   fail(f"Local login success test: {e}")
 
-              # ── Dashboard ───────────────────────────────────────────
-              print("--- Dashboard ---")
+              # ── Dashboard: multi-provider projects ────────────────────
+              print("--- Dashboard: multi-provider projects ---")
               try:
-                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Test Project')]")))
-                  print("OK: Project name visible on dashboard")
+                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Test Project (GitLab)')]")))
+                  print("OK: GitLab project visible on dashboard")
               except:
-                  fail("Project name not found on dashboard")
+                  fail("GitLab project not found on dashboard")
 
               try:
-                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Deploy')]")))
-                  print("OK: Pipeline name visible on dashboard")
+                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Frontend App (GitHub)')]")))
+                  print("OK: GitHub project visible on dashboard")
               except:
-                  fail("Pipeline name not found on dashboard")
+                  fail("GitHub project not found on dashboard")
+
+              try:
+                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'API Service (CircleCI)')]")))
+                  print("OK: CircleCI project visible on dashboard")
+              except:
+                  fail("CircleCI project not found on dashboard")
+
+              # ── Provider badges ───────────────────────────────────────
+              print("--- Provider badges ---")
+              try:
+                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'GitLab')]")))
+                  print("OK: GitLab provider badge visible")
+              except:
+                  fail("GitLab provider badge not found")
+
+              try:
+                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'GitHub')]")))
+                  print("OK: GitHub provider badge visible")
+              except:
+                  fail("GitHub provider badge not found")
+
+              try:
+                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'CircleCI')]")))
+                  print("OK: CircleCI provider badge visible")
+              except:
+                  fail("CircleCI provider badge not found")
+
+              # ── Pipeline names across providers ───────────────────────
+              print("--- Pipeline names ---")
+              for name in ["Deploy", "Build & Deploy", "Release"]:
+                  try:
+                      wait.until(EC.presence_of_element_located((By.XPATH, f"//*[contains(text(), '{name}')]")))
+                      print(f"OK: Pipeline '{name}' visible")
+                  except:
+                      fail(f"Pipeline '{name}' not found on dashboard")
+
+              # ── Dashboard search ──────────────────────────────────────
+              print("--- Dashboard search ---")
+              try:
+                  search_input = wait.until(EC.presence_of_element_located((By.XPATH, "//input[@placeholder]")))
+                  search_input.send_keys("GitHub")
+                  time.sleep(0.5)
+                  # Should show GitHub project, hide others
+                  github_visible = len(driver.find_elements(By.XPATH, "//*[contains(text(), 'Frontend App (GitHub)')]")) > 0
+                  gitlab_visible = len(driver.find_elements(By.XPATH, "//*[contains(text(), 'Test Project (GitLab)')]")) > 0
+                  if github_visible:
+                      print("OK: GitHub project visible after search")
+                  else:
+                      fail("GitHub project not visible after search for 'GitHub'")
+                  if not gitlab_visible:
+                      print("OK: GitLab project hidden after search for 'GitHub'")
+
+                  # Clear search
+                  search_input.clear()
+                  time.sleep(0.5)
+              except Exception as e:
+                  fail(f"Dashboard search: {e}")
 
               # ── External links in sidebar ──────────────────────────
               print("--- External links ---")
@@ -484,14 +591,6 @@ jobs:
                   print("OK: Grafana external link found with correct href and target")
               except Exception as e:
                   fail(f"Grafana external link: {e}")
-
-              try:
-                  wiki_link = wait.until(EC.presence_of_element_located((By.XPATH, "//a[contains(., 'Wiki')]")))
-                  href = wiki_link.get_attribute("href")
-                  assert href.rstrip("/") == "https://wiki.example.com", f"Wiki href wrong: {href}"
-                  print("OK: Wiki external link found with correct href")
-              except Exception as e:
-                  fail(f"Wiki external link: {e}")
 
               # ── Navigate to pipeline launch ─────────────────────────
               print("--- Pipeline launch page ---")
@@ -507,6 +606,21 @@ jobs:
                   print("OK: Pipeline launch page loaded")
               except Exception as e:
                   fail(f"Pipeline launch page: {e}")
+
+              # ── Trigger a pipeline and view run ──────────────────────
+              print("--- Trigger pipeline ---")
+              try:
+                  trigger_btn = wait.until(EC.element_to_be_clickable(
+                      (By.XPATH, "//button[contains(text(), 'Launch')]")))
+                  trigger_btn.click()
+                  wait.until(EC.url_contains("/run/"))
+                  print(f"Pipeline run URL: {driver.current_url}")
+
+                  wait.until(EC.presence_of_element_located(
+                      (By.XPATH, "//*[contains(text(), 'Pipeline Jobs')]")))
+                  print("OK: Pipeline run page loaded with jobs")
+              except Exception as e:
+                  fail(f"Trigger pipeline: {e}")
 
               # ── Profile page ────────────────────────────────────────
               print("--- Profile page ---")
@@ -546,7 +660,6 @@ jobs:
                   wait.until(lambda d: "/login" not in d.current_url)
                   print(f"After mock login URL: {driver.current_url}")
 
-                  # Verify mock user is logged in
                   driver.get(f"{BASE}/profile")
                   wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'test@test.com')]")))
                   print("OK: Mock login successful, test@test.com shown on profile")

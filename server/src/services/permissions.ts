@@ -1,7 +1,7 @@
 import type { AppConfig, AuthUser, ProjectConfig } from "../types/index.js";
 
-export function getAllowedProjectIds(user: AuthUser, config: AppConfig): Set<number> {
-  const allowed = new Set<number>();
+export function getAllowedProjectIds(user: AuthUser, config: AppConfig): Set<string> {
+  const allowed = new Set<string>();
 
   for (const rule of config.permissions) {
     let matches = false;
@@ -34,6 +34,6 @@ export function getAllowedProjects(user: AuthUser, config: AppConfig): ProjectCo
   return config.projects.filter((p) => allowedIds.has(p.id));
 }
 
-export function isAuthorized(user: AuthUser, projectId: number, config: AppConfig): boolean {
+export function isAuthorized(user: AuthUser, projectId: string, config: AppConfig): boolean {
   return getAllowedProjectIds(user, config).has(projectId);
 }

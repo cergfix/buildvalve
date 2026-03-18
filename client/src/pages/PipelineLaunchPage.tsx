@@ -15,7 +15,7 @@ export function PipelineLaunchPage() {
   const { projects } = useAuth();
   const navigate = useNavigate();
 
-  const project = projects?.find((p) => p.id === Number(projectId));
+  const project = projects?.find((p) => p.id === projectId);
   const pipeline = project?.pipelines.find((p) => p.name === pipelineName);
 
   const [vars, setVars] = useState<Record<string, string>>(() => {
@@ -25,7 +25,7 @@ export function PipelineLaunchPage() {
     });
     return initial;
   });
-  
+
   const [isTriggering, setIsTriggering] = useState(false);
 
   if (!project || !pipeline) {
@@ -41,17 +41,17 @@ export function PipelineLaunchPage() {
     try {
       const response = await pipelinesApi.trigger(project.id, pipeline.name, vars);
       toast.success("Pipeline triggered successfully!");
-      navigate(`/project/${project.id}/pipeline/${encodeURIComponent(pipeline.name)}/run/${response.id}`);
+      navigate(`/project/${encodeURIComponent(project.id)}/pipeline/${encodeURIComponent(pipeline.name)}/run/${response.id}`);
     } catch (err: unknown) {
       const apiErr = err as { status?: number; message?: string };
       if (apiErr.status === 401 || apiErr.status === 403) {
-        toast.error("GitLab Auth Failed", { 
+        toast.error("CI Auth Failed", {
           description: "The backend service account token is invalid, missing, or lacks permissions.",
           duration: 8000
         });
       } else if (apiErr.status === 404) {
-        toast.error("GitLab Project Not Found", { 
-          description: "Cannot find the project. Ensure the Service Account has 'Developer' access.",
+        toast.error("Project Not Found", {
+          description: "Cannot find the project. Ensure the service account has the required access.",
           duration: 8000
         });
       } else {
@@ -64,11 +64,11 @@ export function PipelineLaunchPage() {
 
   return (
     <div className="w-full space-y-4">
-      <button 
+      <button
         onClick={() => navigate("/")}
         className="flex items-center text-sm font-medium text-slate-500 hover:text-slate-900 dark:hover:text-slate-200 transition-colors"
       >
-        <ArrowLeft size={16} className="mr-1" /> Back to Dashboard
+        <ArrowLeft size={16} className="mr-1" /> Back to Pipelines
       </button>
 
       <div className="space-y-6 pt-2">
@@ -78,7 +78,7 @@ export function PipelineLaunchPage() {
             Configure parameters for ref: <code>{pipeline.ref}</code>
           </p>
         </div>
-        
+
         <div className="space-y-4 max-w-2xl">
           {pipeline.variables.length === 0 ? (
             <p className="text-slate-500 italic text-sm">No variables configured for this pipeline.</p>
@@ -86,7 +86,7 @@ export function PipelineLaunchPage() {
             pipeline.variables.map((vc: VariableConfig) => (
               <div key={vc.key} className="space-y-1.5">
                 <Label className="font-semibold text-sm">
-                  {vc.key} 
+                  {vc.key}
                   {vc.locked && <span className="text-red-500 text-[10px] font-normal ml-2 uppercase tracking-wide">(Locked)</span>}
                 </Label>
                 {vc.description && <p className="text-xs text-slate-500">{vc.description}</p>}
@@ -102,8 +102,8 @@ export function PipelineLaunchPage() {
         </div>
 
         <div className="flex justify-start pt-2">
-          <Button 
-            className="font-bold text-xs px-3" 
+          <Button
+            className="font-bold text-xs px-3"
             size="sm"
             onClick={onTrigger}
             disabled={isTriggering}

@@ -4,6 +4,10 @@ import type { AppConfig } from "../types/index.js";
 
 function makeConfig(admins?: string[]): AppConfig {
   return {
+    ci_providers: [
+      { name: "default", type: "gitlab", url: "https://gitlab.example.com", token: "super-secret-token" },
+      { name: "github-oss", type: "github-actions", github_token: "ghp-secret" },
+    ],
     gitlab: { url: "https://gitlab.example.com", service_account_token: "super-secret-token" },
     auth: {
       providers: [
@@ -11,7 +15,9 @@ function makeConfig(admins?: string[]): AppConfig {
       ],
     },
     session: { secret: "my-session-secret", max_age: 3600 },
-    projects: [],
+    projects: [
+      { id: "1", name: "P", provider: "default", external_id: "1", token_override: "project-secret", pipelines: [] },
+    ],
     permissions: [],
     admins,
   };
@@ -31,7 +37,6 @@ describe("admin config endpoint", () => {
     const config = makeConfig(["admin@co.com"]);
     const router = createAdminRouter(config);
 
-    // Find the /api/admin/config handler (second layer after requireAuth)
     const layer = (router as any).stack.find(
       (l: any) => l.route?.path === "/api/admin/config"
     );
@@ -60,6 +65,11 @@ describe("admin config endpoint", () => {
     expect(returnedConfig.session.secret).toBe("REDACTED");
     expect(returnedConfig.gitlab.service_account_token).toBe("REDACTED");
     expect(returnedConfig.auth.providers[0].cert).toBe("REDACTED");
+    // CI provider secrets redacted
+    expect(returnedConfig.ci_providers[0].token).toBe("REDACTED");
+    expect(returnedConfig.ci_providers[1].github_token).toBe("REDACTED");
+    // Per-project token override redacted
+    expect(returnedConfig.projects[0].token_override).toBe("REDACTED");
   });
 
   it("does not mutate the original config", () => {
@@ -76,6 +86,7 @@ describe("admin config endpoint", () => {
     handler(req, res);
 
     expect(config.session.secret).toBe("my-session-secret");
-    expect(config.gitlab.service_account_token).toBe("super-secret-token");
+    expect(config.gitlab!.service_account_token).toBe("super-secret-token");
+    expect(config.ci_providers[0].token).toBe("super-secret-token");
   });
 });

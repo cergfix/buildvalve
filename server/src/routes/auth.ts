@@ -28,7 +28,10 @@ export function createAuthRouter(config: AppConfig, providers: AuthProvider[]): 
   // Current user info + allowed projects
   router.get("/api/auth/me", requireAuth, (req, res) => {
     const user = req.session.user!;
-    const projects = getAllowedProjects(user, config);
+    const projects = getAllowedProjects(user, config).map((p) => ({
+      ...p,
+      providerType: config.ci_providers.find((cp) => cp.name === p.provider)?.type,
+    }));
     const isAdmin = !!(config.admins && config.admins.includes(user.email));
     const externalLinks = config.external_links || [];
     res.json({ user, projects, isAdmin, externalLinks });

@@ -10,8 +10,11 @@ import { loadConfig } from "./config.js";
 import { createSessionMiddleware } from "./middleware/session.js";
 import { SamlProvider } from "./services/auth/saml-provider.js";
 import { registerProvider, getAllProviders } from "./services/auth/index.js";
-import { GitLabService } from "./services/gitlab.js";
-import { MockGitLabService } from "./services/mock-gitlab.js";
+import { registerCIProvider } from "./services/ci/index.js";
+import { GitLabProvider } from "./services/ci/gitlab-provider.js";
+import { GitHubActionsProvider } from "./services/ci/github-actions-provider.js";
+import { CircleCIProvider } from "./services/ci/circleci-provider.js";
+import { MockCIProvider } from "./services/ci/mock-provider.js";
 import { createAuthRouter } from "./routes/auth.js";
 import { createPipelineRouter } from "./routes/pipelines.js";
 import { createAdminRouter } from "./routes/admin.js";
@@ -24,7 +27,7 @@ import { logger } from "./utils/logger.js";
 const configPath = process.env.CONFIG_PATH;
 const config = loadConfig(configPath);
 
-logger.info(`Loaded config: ${config.projects.length} projects, ${config.permissions.length} permission rules`);
+logger.info(`Loaded config: ${config.projects.length} projects, ${config.permissions.length} permission rules, ${config.ci_providers.length} CI providers`);
 
 // Init auth providers
 for (const providerConfig of config.auth.providers) {
@@ -54,10 +57,67 @@ if (providers.length === 0) {
   throw new Error("No auth providers enabled. Check config.yml auth.providers.");
 }
 
-// Init GitLab service
-const gitlab = config.gitlab.mock
-  ? new MockGitLabService()
-  : new GitLabService(config.gitlab.url, config.gitlab.service_account_token);
+// Init CI providers
+for (const providerConfig of config.ci_providers) {
+  if (providerConfig.mock) {
+    registerCIProvider(new MockCIProvider(providerConfig.name, providerConfig.type));
+  } else {
+    switch (providerConfig.type) {
+      case "gitlab":
+        if (!providerConfig.url || !providerConfig.token) {
+          throw new Error(`GitLab CI provider "${providerConfig.name}" requires url and token`);
+        }
+        registerCIProvider(new GitLabProvider(providerConfig.name, providerConfig.url, providerConfig.token));
+        break;
+      case "github-actions":
+        if (!providerConfig.github_token) {
+          throw new Error(`GitHub Actions CI provider "${providerConfig.name}" requires github_token`);
+        }
+        registerCIProvider(new GitHubActionsProvider(providerConfig.name, providerConfig.github_token, providerConfig.github_api_url));
+        break;
+      case "circleci":
+        if (!providerConfig.circleci_token) {
+          throw new Error(`CircleCI CI provider "${providerConfig.name}" requires circleci_token`);
+        }
+        registerCIProvider(new CircleCIProvider(providerConfig.name, providerConfig.circleci_token, providerConfig.circleci_api_url));
+        break;
+      default:
+        logger.warn(`Unknown CI provider type: ${providerConfig.type} — skipping`);
+        continue;
+    }
+  }
+  logger.info(`CI provider registered: ${providerConfig.name} (${providerConfig.type}${providerConfig.mock ? ", mock" : ""})`);
+}
+
+// Handle per-project token overrides: create override provider instances
+for (const project of config.projects) {
+  if (!project.token_override) continue;
+
+  const baseProvider = config.ci_providers.find((p) => p.name === project.provider);
+  if (!baseProvider) continue;
+
+  const overrideName = `${project.provider}::${project.id}`;
+
+  if (baseProvider.mock) {
+    registerCIProvider(new MockCIProvider(overrideName, baseProvider.type));
+  } else {
+    switch (baseProvider.type) {
+      case "gitlab":
+        registerCIProvider(new GitLabProvider(overrideName, baseProvider.url!, project.token_override));
+        break;
+      case "github-actions":
+        registerCIProvider(new GitHubActionsProvider(overrideName, project.token_override, baseProvider.github_api_url));
+        break;
+      case "circleci":
+        registerCIProvider(new CircleCIProvider(overrideName, project.token_override, baseProvider.circleci_api_url));
+        break;
+    }
+  }
+
+  // Point this project to the override provider
+  (project as { provider: string }).provider = overrideName;
+  logger.info(`Token override registered for project "${project.name}" -> ${overrideName}`);
+}
 
 // Express app
 const app = express();
@@ -94,7 +154,7 @@ if (existsSync(clientDir)) {
 
 // Routes
 app.use(createAuthRouter(config, providers));
-app.use(createPipelineRouter(config, gitlab));
+app.use(createPipelineRouter(config));
 app.use(createAdminRouter(config));
 
 // SPA fallback — serves index.html for non-API routes (client-side routing)

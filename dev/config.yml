@@ -1,7 +1,19 @@
-gitlab:
-  url: https://gitlab.example.com
-  service_account_token: glpat-test
-  mock: true
+ci_providers:
+  - name: gitlab-corp
+    type: gitlab
+    url: https://gitlab.example.com
+    token: glpat-test
+    mock: true
+
+  - name: github-oss
+    type: github-actions
+    github_token: ghp-test
+    mock: true
+
+  - name: circleci-main
+    type: circleci
+    circleci_token: cc-test
+    mock: true
 
 admins:
   - alice@company.com
@@ -37,12 +49,14 @@ session:
 
 permissions:
   - users: [alice@company.com, bob@company.com, cergfix@gmail.com]
-    projects: [42]
+    projects: ["42", "myorg/frontend", "gh/myorg/api"]
 
 projects:
-  - id: 42
-    name: "My App"
-    description: "Main service"
+  - id: "42"
+    name: "My App (GitLab)"
+    description: "Main backend service on GitLab"
+    provider: gitlab-corp
+    external_id: "42"
     pipelines:
       - name: "Deploy to Staging"
         ref: staging
@@ -55,6 +69,39 @@ projects:
             locked: false
             required: true
             description: "Docker image tag to deploy"
+
+  - id: "myorg/frontend"
+    name: "Frontend App (GitHub)"
+    description: "React frontend on GitHub Actions"
+    provider: github-oss
+    external_id: "myorg/frontend"
+    pipelines:
+      - name: "Deploy to Production"
+        ref: main
+        workflow_id: deploy.yml
+        variables:
+          - key: ENVIRONMENT
+            value: production
+            locked: true
+          - key: VERSION
+            value: ""
+            locked: false
+            required: true
+            description: "Semver tag to deploy"
+
+  - id: "gh/myorg/api"
+    name: "API Service (CircleCI)"
+    description: "API microservice on CircleCI"
+    provider: circleci-main
+    external_id: "gh/myorg/api"
+    pipelines:
+      - name: "Build & Deploy"
+        ref: main
+        variables:
+          - key: DEPLOY_ENV
+            value: staging
+            locked: false
+            description: "Target environment (staging/production)"
 
 external_links:
   - label: "Grafana"
