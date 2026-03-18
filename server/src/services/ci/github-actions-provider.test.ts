@@ -4,7 +4,7 @@ import { CIProviderError } from "./types.js";
 
 describe("GitHubActionsProvider", () => {
   let provider: GitHubActionsProvider;
-  let fetchSpy: ReturnType<typeof vi.spyOn>;
+  let fetchSpy: any;
 
   beforeEach(() => {
     provider = new GitHubActionsProvider("github-oss", "ghp-test-token");

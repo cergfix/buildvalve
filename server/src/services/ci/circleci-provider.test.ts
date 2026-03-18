@@ -4,7 +4,7 @@ import { CIProviderError } from "./types.js";
 
 describe("CircleCIProvider", () => {
   let provider: CircleCIProvider;
-  let fetchSpy: ReturnType<typeof vi.spyOn>;
+  let fetchSpy: any;
 
   beforeEach(() => {
     provider = new CircleCIProvider("cci-main", "cc-test-token");

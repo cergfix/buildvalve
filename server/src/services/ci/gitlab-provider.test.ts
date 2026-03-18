@@ -4,7 +4,7 @@ import { CIProviderError } from "./types.js";
 
 describe("GitLabProvider", () => {
   let provider: GitLabProvider;
-  let fetchSpy: ReturnType<typeof vi.spyOn>;
+  let fetchSpy: any;
 
   beforeEach(() => {
     provider = new GitLabProvider("gitlab-corp", "https://gitlab.example.com", "glpat-test");
