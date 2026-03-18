@@ -17,7 +17,6 @@ export class MockProvider implements AuthProvider {
       // Simply slam the requested mock user into the session
       req.session.user = {
         email: this.config.mock_user.email,
-        username: this.config.mock_user.username,
         provider: "mock",
         groups: this.config.mock_user.groups || [],
       };

@@ -18,7 +18,7 @@ function makeConfig(admins?: string[]): AppConfig {
 }
 
 function mockReqRes(email: string) {
-  const req = { session: { user: { email, username: "test", provider: "mock" } } } as any;
+  const req = { session: { user: { email, provider: "mock" } } } as any;
   const res = {
     status: vi.fn().mockReturnThis(),
     json: vi.fn().mockReturnThis(),
@@ -35,7 +35,8 @@ describe("admin config endpoint", () => {
     const layer = (router as any).stack.find(
       (l: any) => l.route?.path === "/api/admin/config"
     );
-    const handler = layer.route.stack[0].handle;
+    const handlers = layer.route.stack.map((s: any) => s.handle);
+    const handler = handlers[handlers.length - 1];
 
     const { req, res } = mockReqRes("nobody@co.com");
     handler(req, res);
@@ -49,7 +50,8 @@ describe("admin config endpoint", () => {
     const layer = (router as any).stack.find(
       (l: any) => l.route?.path === "/api/admin/config"
     );
-    const handler = layer.route.stack[0].handle;
+    const handlers = layer.route.stack.map((s: any) => s.handle);
+    const handler = handlers[handlers.length - 1];
 
     const { req, res } = mockReqRes("admin@co.com");
     handler(req, res);
@@ -67,7 +69,8 @@ describe("admin config endpoint", () => {
     const layer = (router as any).stack.find(
       (l: any) => l.route?.path === "/api/admin/config"
     );
-    const handler = layer.route.stack[0].handle;
+    const handlers = layer.route.stack.map((s: any) => s.handle);
+    const handler = handlers[handlers.length - 1];
 
     const { req, res } = mockReqRes("admin@co.com");
     handler(req, res);

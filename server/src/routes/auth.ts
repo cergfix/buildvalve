@@ -18,7 +18,9 @@ export function createAuthRouter(config: AppConfig, providers: AuthProvider[]): 
     const available = providers.map((p) => ({
       type: p.type,
       label: p.label,
+      buttonLabel: `Sign in with ${p.label}`,
       loginUrl: `/api/auth/${p.type}/login`,
+      form: p.type === "local" ? "credentials" as const : undefined,
     }));
     res.json(available);
   });
@@ -28,7 +30,8 @@ export function createAuthRouter(config: AppConfig, providers: AuthProvider[]): 
     const user = req.session.user!;
     const projects = getAllowedProjects(user, config);
     const isAdmin = !!(config.admins && config.admins.includes(user.email));
-    res.json({ user, projects, isAdmin });
+    const externalLinks = config.external_links || [];
+    res.json({ user, projects, isAdmin, externalLinks });
   });
 
   // Logout

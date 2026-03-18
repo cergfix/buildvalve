@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { Outlet, Navigate, NavLink } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
-import { LayoutDashboard, User, Settings, LogOut, ChevronLeft, ChevronRight } from "lucide-react";
+import { LayoutDashboard, User, Settings, LogOut, ChevronLeft, ChevronRight, ExternalLink } from "lucide-react";
 
 export function AppShell() {
-  const { user, logout, isLoading, isAdmin } = useAuth();
+  const { user, logout, isLoading, isAdmin, externalLinks } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
 
   if (isLoading) {
@@ -16,7 +16,7 @@ export function AppShell() {
   }
 
   const navItems = [
-    { name: "Dashboard", to: "/", icon: LayoutDashboard },
+    { name: "Pipelines", to: "/", icon: LayoutDashboard },
     { name: "Profile", to: "/profile", icon: User },
   ];
 
@@ -53,24 +53,54 @@ export function AppShell() {
 
           {/* Nav items */}
           <nav className="p-3 space-y-1">
-            {navItems.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                title={collapsed ? item.name : undefined}
-                className={({ isActive }: { isActive: boolean }) =>
-                  `flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-all overflow-hidden ${
-                    isActive
-                      ? "bg-primary text-primary-foreground shadow-blocky"
-                      : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
-                  }`
-                }
-              >
-                <item.icon size={18} className="shrink-0" />
-                {!collapsed && (
-                  <span className="whitespace-nowrap overflow-hidden">{item.name}</span>
+            {navItems.map((item, index) => (
+              <div key={item.to}>
+                <NavLink
+                  to={item.to}
+                  title={collapsed ? item.name : undefined}
+                  className={({ isActive }: { isActive: boolean }) =>
+                    `flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-all overflow-hidden ${
+                      isActive
+                        ? "bg-primary text-primary-foreground shadow-blocky"
+                        : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
+                    }`
+                  }
+                >
+                  <item.icon size={18} className="shrink-0" />
+                  {!collapsed && (
+                    <span className="whitespace-nowrap overflow-hidden">{item.name}</span>
+                  )}
+                </NavLink>
+
+                {/* Separators and External Links Section (at index 0/Pipelines) */}
+                {index === 0 && (
+                  <>
+                    <div className="my-2 border-t border-slate-100 dark:border-slate-800" />
+                    {externalLinks && externalLinks.length > 0 && (
+                      <>
+                        <div className="mt-1 mb-1 space-y-0.5">
+                          {externalLinks.map((link) => (
+                            <a
+                              key={link.url}
+                              href={link.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white transition-all overflow-hidden"
+                              title={collapsed ? link.label : undefined}
+                            >
+                              <ExternalLink size={18} className="shrink-0 opacity-70" />
+                              {!collapsed && (
+                                <span className="whitespace-nowrap overflow-hidden">{link.label}</span>
+                              )}
+                            </a>
+                          ))}
+                        </div>
+                        <div className="my-2 border-t border-slate-100 dark:border-slate-800" />
+                      </>
+                    )}
+                  </>
                 )}
-              </NavLink>
+              </div>
             ))}
           </nav>
         </div>

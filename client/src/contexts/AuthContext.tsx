@@ -8,6 +8,7 @@ interface AuthContextType {
   user: DashboardData["user"] | null;
   projects: DashboardData["projects"] | null;
   isAdmin: boolean;
+  externalLinks: DashboardData["externalLinks"];
   checkAuth: () => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -49,6 +50,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         user: data?.user || null,
         projects: data?.projects || null,
         isAdmin: data?.isAdmin || false,
+        externalLinks: data?.externalLinks || [],
         checkAuth,
         logout,
       }}

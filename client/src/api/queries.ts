@@ -8,12 +8,15 @@ export interface DashboardData {
   user: AuthUser;
   projects: ProjectConfig[];
   isAdmin: boolean;
+  externalLinks?: { label: string; url: string }[];
 }
 
 export interface ProviderInfo {
   type: string;
   label: string;
+  buttonLabel: string;
   loginUrl: string;
+  form?: "credentials";
 }
 
 export const authApi = {

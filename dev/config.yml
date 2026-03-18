@@ -5,6 +5,7 @@ gitlab:
 
 admins:
   - alice@company.com
+  - cergfix@gmail.com
 
 auth:
   providers:
@@ -12,16 +13,30 @@ auth:
       enabled: true
       label: "Bypass Login (Dev)"
       mock_user:
-        email: alice@company.com
+        email: bob@company.com
         groups:
-          - devops-team
+          - dev-team
+
+    - type: local
+      enabled: true
+      label: "Local Account"
+      users:
+        - email: alice@company.com
+          password: admin
+          groups:
+            - devops-team
+        - email: bob@company.com
+          password: user
+          groups:
+            - dev-team
+
 
 session:
   secret: local-dev-secret-change-me
   max_age: 86400
 
 permissions:
-  - users: [alice@company.com]
+  - users: [alice@company.com, bob@company.com, cergfix@gmail.com]
     projects: [42]
 
 projects:
@@ -40,3 +55,11 @@ projects:
             locked: false
             required: true
             description: "Docker image tag to deploy"
+
+external_links:
+  - label: "Grafana"
+    url: "https://grafana.example.com"
+  - label: "Sentry"
+    url: "https://sentry.example.com"
+  - label: "Wiki"
+    url: "https://wiki.example.com"

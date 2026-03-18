@@ -10,6 +10,7 @@ export class ApiError extends Error {
 export async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const params: RequestInit = {
     ...options,
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
       ...options?.headers,

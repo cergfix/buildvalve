@@ -14,7 +14,7 @@ const recentPipelinesCache = new LRUCache<number, any>({
 export function createPipelineRouter(config: AppConfig, gitlab: GitLabService): Router {
   const router = Router();
 
-  router.use(requireAuth);
+  router.use("/api/pipelines", requireAuth);
 
   // Get user's allowed pipeline configs
   router.get("/api/pipelines", (req, res) => {

@@ -20,7 +20,6 @@ function makeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
 function makeUser(overrides: Partial<AuthUser> = {}): AuthUser {
   return {
     email: "alice@example.com",
-    username: "alice",
     provider: "mock",
     ...overrides,
   };
