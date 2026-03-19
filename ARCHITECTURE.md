@@ -167,9 +167,15 @@ SSE was chosen over WebSocket because the data flow is one-way (server to client
 
 ---
 
-## Access Logging
+## Logging
 
-All user actions are logged as structured JSON to stdout:
+All logs go to **stdout only** as structured JSON — no file transports. This is designed for container environments where log collection is handled by the orchestrator (Docker, Kubernetes, ECS, etc.).
+
+### Log types
+
+Every log line is a JSON object with a `timestamp` field. There are three categories, distinguished by the `type` or `level` field:
+
+**1. Access logs** (`type: "access"`) — user actions tracked by the `access()` helper:
 
 ```json
 {
@@ -181,11 +187,44 @@ All user actions are logged as structured JSON to stdout:
   "provider": "gitlab",
   "pipeline_name": "Deploy to Production",
   "ci_pipeline_id": "12345",
+  "level": "info",
   "timestamp": "2026-03-19T10:30:00.000Z"
 }
 ```
 
-Events: `login`, `login_failed`, `logout`, `pipeline_triggered`, `pipeline_trigger_failed`, `pipeline_viewed`, `pipeline_history_viewed`, `job_logs_viewed`, `admin_config_viewed`.
+Access events: `login`, `login_failed`, `logout`, `pipeline_triggered`, `pipeline_trigger_failed`, `pipeline_viewed`, `pipeline_history_viewed`, `job_logs_viewed`, `admin_config_viewed`.
+
+**2. HTTP request logs** (`type: "access"`) — every HTTP request via Morgan:
+
+```json
+{
+  "type": "access",
+  "message": "::1 - POST /api/pipelines/trigger HTTP/1.1 200 234 - 12.456 ms",
+  "level": "info",
+  "timestamp": "2026-03-19T10:30:00.000Z"
+}
+```
+
+**3. Application logs** — general info, warnings, and errors from the server:
+
+```json
+{
+  "message": "Loaded config: 3 projects, 1 permission rules, 3 CI providers",
+  "level": "info",
+  "timestamp": "2026-03-19T10:30:00.000Z"
+}
+```
+
+### Implementation
+
+```
+Morgan (HTTP) ──→ morganStream ──→ logger.info({ type: "access" })
+                                                                      ──→ Winston ──→ stdout (JSON)
+access() helper ──→ logger.info({ type: "access", event: "..." })
+logger.info/warn/error ──→ logger directly
+```
+
+Winston is configured with a single `Console` transport using JSON format. There are no file transports — filtering by `type`, `level`, or `event` should be done downstream (e.g. CloudWatch, Loki, Datadog, `jq`).
 
 ---
 
@@ -225,7 +264,7 @@ buildvalve/
 │       ├── types/
 │       │   └── index.ts            # AppConfig, ProjectConfig, PipelineConfig, etc.
 │       └── utils/
-│           ├── logger.ts           # Winston logger (stdout + file)
+│           ├── logger.ts           # Winston logger (stdout, JSON)
 │           └── access.ts           # Structured access log helper
 ├── client/
 │   └── src/
@@ -349,4 +388,4 @@ The `/api/pipelines/:projectId/history` route is registered **before** `/api/pip
 | Config | YAML (`js-yaml`) + AJV schema validation |
 | Sessions | `express-session` (SQLite / Redis) |
 | Caching | LRU Cache (recent pipelines) |
-| Logging | Winston (stdout + file) |
+| Logging | Winston (stdout, JSON) |

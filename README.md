@@ -18,7 +18,7 @@ You configure which pipelines are available and who can trigger them. Your team 
 - **No CI accounts needed for users** — service account tokens handle all API calls.
 - **Per-pipeline permissions** — restrict sensitive pipelines to specific users or groups.
 - **Safe variable pre-filling** — lock sensitive variables server-side so users can't override them.
-- **Audit-ready** — every action is logged with the user's email (login, trigger, view, admin).
+- **Audit-ready** — structured JSON access logs to stdout for every user action (login, trigger, view, admin).
 - **SSO-native** — integrates with SAML 2.0, GitHub OAuth, Google OAuth, GitLab OAuth, or local accounts.
 - **Live monitoring** — SSE-powered real-time pipeline status and live job log streaming.
 
