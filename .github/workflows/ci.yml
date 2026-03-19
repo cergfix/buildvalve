@@ -1092,23 +1092,29 @@ jobs:
 
       - name: "Split Client: SPA serves from nginx"
         run: |
-          echo "--- Client SPA loads ---"
+          echo "--- Client SPA index.html loads ---"
           HTML=$(curl -sf http://localhost:8080/)
-          echo "$HTML" | grep -q "BuildValve"
+          echo "$HTML" | grep -q '<div id="root">'
           echo "OK: Client SPA serves index.html"
 
           echo "--- SPA fallback works ---"
           HTML=$(curl -sf http://localhost:8080/login)
-          echo "$HTML" | grep -q "BuildValve"
-          echo "OK: SPA fallback route works"
+          echo "$HTML" | grep -q '<div id="root">'
+          echo "OK: SPA fallback returns index.html"
 
-          echo "--- Static assets load ---"
-          ASSETS=$(curl -sf http://localhost:8080/ | grep -o 'src="[^"]*"' | head -1)
-          echo "Asset reference: $ASSETS"
-          ASSET_PATH=$(echo "$ASSETS" | sed 's/src="//;s/"//')
-          CODE=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:8080${ASSET_PATH}")
-          [ "$CODE" = "200" ] || { echo "FAIL: asset returned $CODE"; exit 1; }
-          echo "OK: Static assets load"
+          echo "--- JS bundle loads ---"
+          SCRIPT=$(curl -sf http://localhost:8080/ | grep -o 'src="/assets/[^"]*"' | head -1 | sed 's/src="//;s/"//')
+          echo "Script: $SCRIPT"
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:8080${SCRIPT}")
+          [ "$CODE" = "200" ] || { echo "FAIL: JS bundle returned $CODE"; exit 1; }
+          echo "OK: JS bundle loads"
+
+          echo "--- CSS loads ---"
+          CSS=$(curl -sf http://localhost:8080/ | grep -o 'href="/assets/[^"]*\.css"' | head -1 | sed 's/href="//;s/"//')
+          echo "CSS: $CSS"
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:8080${CSS}")
+          [ "$CODE" = "200" ] || { echo "FAIL: CSS returned $CODE"; exit 1; }
+          echo "OK: CSS loads"
 
       - name: Set up Chrome and Selenium
         run: pip install selenium webdriver-manager
