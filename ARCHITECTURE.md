@@ -167,13 +167,13 @@ SSE was chosen over WebSocket because the data flow is one-way (server to client
 
 ---
 
-## Audit Logging
+## Access Logging
 
-All user actions are logged as structured JSON to stdout (and `logs/audit.log`):
+All user actions are logged as structured JSON to stdout:
 
 ```json
 {
-  "audit": true,
+  "type": "access",
   "event": "pipeline_triggered",
   "user_email": "alice@company.com",
   "user_provider": "saml",
@@ -226,7 +226,7 @@ buildvalve/
 │       │   └── index.ts            # AppConfig, ProjectConfig, PipelineConfig, etc.
 │       └── utils/
 │           ├── logger.ts           # Winston logger (stdout + file)
-│           └── audit.ts            # Structured audit event helper
+│           └── access.ts           # Structured access log helper
 ├── client/
 │   └── src/
 │       ├── App.tsx             # Router + route definitions

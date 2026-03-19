@@ -9,8 +9,8 @@ vi.mock("../utils/logger.js", () => ({
   logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn() },
 }));
 
-vi.mock("../utils/audit.js", () => ({
-  audit: vi.fn(),
+vi.mock("../utils/access.js", () => ({
+  access: vi.fn(),
 }));
 
 vi.mock("../services/ci/index.js", () => ({

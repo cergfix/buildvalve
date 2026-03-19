@@ -6,7 +6,7 @@ import { isAuthorized, getAllowedProjectIds, isPipelineAuthorized } from "../ser
 import { requireAuth } from "../middleware/requireAuth.js";
 import { LRUCache } from "lru-cache";
 import { logger } from "../utils/logger.js";
-import { audit } from "../utils/audit.js";
+import { access } from "../utils/access.js";
 
 const recentPipelinesCache = new LRUCache<string, any>({
   max: 100,
@@ -94,7 +94,7 @@ export function createPipelineRouter(config: AppConfig): Router {
         finalVars,
         pipelineConfig.workflow_id
       );
-      audit(user, "pipeline_triggered", {
+      access(user, "pipeline_triggered", {
         project_id: projectId,
         provider: provider.type,
         pipeline_name: pipelineName,
@@ -104,7 +104,7 @@ export function createPipelineRouter(config: AppConfig): Router {
       res.json(pipeline);
     } catch (err) {
       if (err instanceof CIProviderError) {
-        audit(user, "pipeline_trigger_failed", {
+        access(user, "pipeline_trigger_failed", {
           project_id: projectId,
           provider: provider.type,
           pipeline_name: pipelineName,
@@ -176,7 +176,7 @@ export function createPipelineRouter(config: AppConfig): Router {
 
     try {
       const pipelines = await provider.listPipelines(project.external_id, { per_page: 50, ref });
-      audit(user, "pipeline_history_viewed", { project_id: projectId, ref });
+      access(user, "pipeline_history_viewed", { project_id: projectId, ref });
       res.json(pipelines);
     } catch (err) {
       if (err instanceof CIProviderError) {
@@ -218,7 +218,7 @@ export function createPipelineRouter(config: AppConfig): Router {
         provider.getPipeline(project.external_id, pipelineId),
         provider.getPipelineJobs(project.external_id, pipelineId),
       ]);
-      audit(user, "pipeline_viewed", { project_id: projectId, pipeline_id: pipelineId });
+      access(user, "pipeline_viewed", { project_id: projectId, pipeline_id: pipelineId });
       res.json({ pipeline, jobs });
     } catch (err) {
       if (err instanceof CIProviderError) {
@@ -257,7 +257,7 @@ export function createPipelineRouter(config: AppConfig): Router {
 
     try {
       const trace = await provider.getJobTrace(project.external_id, jobId);
-      audit(user, "job_logs_viewed", { project_id: projectId, job_id: jobId });
+      access(user, "job_logs_viewed", { project_id: projectId, job_id: jobId });
       res.type("text/plain").send(trace);
     } catch (err) {
       if (err instanceof CIProviderError) {
@@ -398,7 +398,7 @@ export function createPipelineRouter(config: AppConfig): Router {
       if (!closed) setTimeout(poll, INTERVAL);
     };
 
-    audit(user, "job_logs_viewed", { project_id: projectId, job_id: jobId });
+    access(user, "job_logs_viewed", { project_id: projectId, job_id: jobId });
     poll();
   });
 

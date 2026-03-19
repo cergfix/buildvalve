@@ -1,7 +1,7 @@
 import { Router } from "express";
 import type { AppConfig } from "../types/index.js";
 import { requireAuth } from "../middleware/requireAuth.js";
-import { audit } from "../utils/audit.js";
+import { access } from "../utils/access.js";
 
 export function createAdminRouter(config: AppConfig): Router {
   const router = Router();
@@ -38,7 +38,7 @@ export function createAdminRouter(config: AppConfig): Router {
       }
     }
 
-    audit(req.session.user!, "admin_config_viewed");
+    access(req.session.user!, "admin_config_viewed");
     res.json(safeConfig);
   });
 

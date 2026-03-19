@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { audit } from "./audit.js";
+import { access } from "./access.js";
 
 vi.mock("./logger.js", () => ({
   logger: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
@@ -7,27 +7,27 @@ vi.mock("./logger.js", () => ({
 
 import { logger } from "./logger.js";
 
-describe("audit", () => {
-  it("logs a structured audit entry for login", () => {
-    audit({ email: "alice@co.com", provider: "local" }, "login");
+describe("access", () => {
+  it("logs a structured access entry for login", () => {
+    access({ email: "alice@co.com", provider: "local" }, "login");
 
     expect(logger.info).toHaveBeenCalledWith({
-      audit: true,
+      type: "access",
       event: "login",
       user_email: "alice@co.com",
       user_provider: "local",
     });
   });
 
-  it("logs a structured audit entry for pipeline_triggered with extra fields", () => {
-    audit(
+  it("logs a structured access entry for pipeline_triggered with extra fields", () => {
+    access(
       { email: "bob@co.com", provider: "github" },
       "pipeline_triggered",
       { project_id: "42", pipeline_name: "Deploy", ci_pipeline_id: "999" }
     );
 
     expect(logger.info).toHaveBeenCalledWith({
-      audit: true,
+      type: "access",
       event: "pipeline_triggered",
       user_email: "bob@co.com",
       user_provider: "github",
@@ -38,11 +38,11 @@ describe("audit", () => {
   });
 
   it("logs login_failed with reason", () => {
-    audit({ email: "hacker@evil.com", provider: "local" }, "login_failed", { reason: "invalid_credentials" });
+    access({ email: "hacker@evil.com", provider: "local" }, "login_failed", { reason: "invalid_credentials" });
 
     expect(logger.info).toHaveBeenCalledWith(
       expect.objectContaining({
-        audit: true,
+        type: "access",
         event: "login_failed",
         user_email: "hacker@evil.com",
         reason: "invalid_credentials",
@@ -51,7 +51,7 @@ describe("audit", () => {
   });
 
   it("defaults provider to unknown when not set", () => {
-    audit({ email: "x@y.com" }, "logout");
+    access({ email: "x@y.com" }, "logout");
 
     expect(logger.info).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -70,9 +70,9 @@ describe("audit", () => {
 
     for (const event of events) {
       vi.mocked(logger.info).mockClear();
-      audit({ email: "test@co.com", provider: "mock" }, event);
+      access({ email: "test@co.com", provider: "mock" }, event);
       expect(logger.info).toHaveBeenCalledWith(
-        expect.objectContaining({ audit: true, event })
+        expect.objectContaining({ type: "access", event })
       );
     }
   });

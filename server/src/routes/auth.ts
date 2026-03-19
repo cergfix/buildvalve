@@ -4,7 +4,7 @@ import type { AuthProvider } from "../services/auth/types.js";
 import { getAllowedProjects, isPipelineAuthorized } from "../services/permissions.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { logger } from "../utils/logger.js";
-import { audit } from "../utils/audit.js";
+import { access } from "../utils/access.js";
 
 export function createAuthRouter(config: AppConfig, providers: AuthProvider[]): Router {
   const router = Router();
@@ -42,7 +42,7 @@ export function createAuthRouter(config: AppConfig, providers: AuthProvider[]): 
   // Logout
   router.post("/api/auth/logout", (req, res) => {
     if (req.session.user) {
-      audit(req.session.user, "logout");
+      access(req.session.user, "logout");
     }
     req.session.destroy((err) => {
       if (err) {
