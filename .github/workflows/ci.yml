@@ -926,3 +926,306 @@ jobs:
       - name: Stop container
         if: always()
         run: docker stop smoke || true
+
+  # ─── Split deployment smoke test ─────────────────────────────────────
+  docker-split-test:
+    name: Docker Split — server + client images
+    runs-on: ubuntu-latest
+    needs: [server, client]
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build server image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile.server
+          load: true
+          tags: buildvalve-server:test
+          cache-from: type=gha
+
+      - name: Build client image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile.client
+          load: true
+          tags: buildvalve-client:test
+          build-args: |
+            VITE_API_URL=http://localhost:3000
+          cache-from: type=gha
+
+      - name: Write test config
+        run: |
+          cat > /tmp/config.yml <<'YAML'
+          ci_providers:
+            - name: mock-gitlab
+              type: gitlab
+              url: https://gitlab.example.com
+              token: glpat-test
+              mock: true
+          admins:
+            - test@test.com
+          auth:
+            providers:
+              - type: mock
+                enabled: true
+                label: "Mock Login"
+                mock_user:
+                  email: test@test.com
+                  groups: [test]
+              - type: local
+                enabled: true
+                label: "Local Login"
+                users:
+                  - email: alice@company.com
+                    password: secret123
+                    groups: [devops]
+          session:
+            secret: smoke-test-secret-1234
+            max_age: 3600
+          projects:
+            - id: "1"
+              name: Split Test Project
+              description: Testing split deployment
+              provider: mock-gitlab
+              external_id: "1"
+              pipelines:
+                - name: Deploy
+                  ref: main
+                  variables:
+                    - key: ENVIRONMENT
+                      value: staging
+                      locked: false
+                      type: select
+                      options:
+                        - staging
+                        - production
+          permissions:
+            - users: [test@test.com, alice@company.com]
+              projects: ["1"]
+          YAML
+
+      - name: Start server container
+        run: |
+          docker run -d --name split-server \
+            -v /tmp/config.yml:/app/config/config.yml:ro \
+            -e NODE_ENV=test \
+            -e CORS_ORIGIN=http://localhost:8080 \
+            -p 3000:3000 \
+            buildvalve-server:test
+
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3000/api/health > /dev/null 2>&1; then
+              echo "Server is ready"
+              break
+            fi
+            if [ "$i" = "30" ]; then
+              echo "Server failed to start"
+              docker logs split-server
+              exit 1
+            fi
+            sleep 1
+          done
+
+      - name: Start client container
+        run: |
+          docker run -d --name split-client \
+            -p 8080:80 \
+            buildvalve-client:test
+
+          for i in $(seq 1 15); do
+            if curl -sf http://localhost:8080/ > /dev/null 2>&1; then
+              echo "Client is ready"
+              break
+            fi
+            if [ "$i" = "15" ]; then
+              echo "Client failed to start"
+              docker logs split-client
+              exit 1
+            fi
+            sleep 1
+          done
+
+      - name: "Split API: health check"
+        run: |
+          echo "--- Server health ---"
+          HEALTH=$(curl -sf http://localhost:3000/api/health)
+          echo "$HEALTH"
+          echo "$HEALTH" | grep -q '"status":"ok"'
+          echo "OK: Server API healthy"
+
+      - name: "Split API: auth and pipelines"
+        run: |
+          CJ=$(mktemp)
+
+          echo "--- Mock login via server ---"
+          curl -s -c "$CJ" -L -o /dev/null http://localhost:3000/api/auth/mock/login
+          ME=$(curl -sf -b "$CJ" http://localhost:3000/api/auth/me)
+          echo "$ME" | grep -q '"test@test.com"'
+          echo "OK: Auth works on server-only image"
+
+          echo "--- Pipelines ---"
+          PIPELINES=$(curl -sf -b "$CJ" http://localhost:3000/api/pipelines)
+          echo "$PIPELINES" | grep -q '"Split Test Project"'
+          echo "OK: Pipelines endpoint works"
+
+          echo "--- Trigger ---"
+          TRIGGER=$(curl -sf -b "$CJ" -X POST http://localhost:3000/api/pipelines/trigger \
+            -H 'Content-Type: application/json' \
+            -d '{"projectId":"1","pipelineName":"Deploy","variables":{"ENVIRONMENT":"staging"}}')
+          echo "$TRIGGER" | grep -q '"id"'
+          echo "OK: Trigger works on server-only image"
+
+          echo "--- Invalid select option rejected ---"
+          CODE=$(curl -s -b "$CJ" -o /dev/null -w '%{http_code}' -X POST http://localhost:3000/api/pipelines/trigger \
+            -H 'Content-Type: application/json' \
+            -d '{"projectId":"1","pipelineName":"Deploy","variables":{"ENVIRONMENT":"invalid"}}')
+          [ "$CODE" = "400" ] || { echo "FAIL: expected 400, got $CODE"; exit 1; }
+          echo "OK: Invalid select option rejected"
+
+          rm -f "$CJ"
+
+      - name: "Split Client: SPA serves from nginx"
+        run: |
+          echo "--- Client SPA loads ---"
+          HTML=$(curl -sf http://localhost:8080/)
+          echo "$HTML" | grep -q "BuildValve"
+          echo "OK: Client SPA serves index.html"
+
+          echo "--- SPA fallback works ---"
+          HTML=$(curl -sf http://localhost:8080/login)
+          echo "$HTML" | grep -q "BuildValve"
+          echo "OK: SPA fallback route works"
+
+          echo "--- Static assets load ---"
+          ASSETS=$(curl -sf http://localhost:8080/ | grep -o 'src="[^"]*"' | head -1)
+          echo "Asset reference: $ASSETS"
+          ASSET_PATH=$(echo "$ASSETS" | sed 's/src="//;s/"//')
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:8080${ASSET_PATH}")
+          [ "$CODE" = "200" ] || { echo "FAIL: asset returned $CODE"; exit 1; }
+          echo "OK: Static assets load"
+
+      - name: Set up Chrome and Selenium
+        run: pip install selenium webdriver-manager
+
+      - name: "Split UI: Selenium smoke tests"
+        run: |
+          python3 << 'PYEOF'
+          import sys
+          import time
+          from selenium import webdriver
+          from selenium.webdriver.common.by import By
+          from selenium.webdriver.chrome.options import Options
+          from selenium.webdriver.chrome.service import Service
+          from selenium.webdriver.support.ui import WebDriverWait
+          from selenium.webdriver.support import expected_conditions as EC
+          from webdriver_manager.chrome import ChromeDriverManager
+
+          # Client on :8080, API on :3000
+          CLIENT = "http://localhost:8080"
+          failures = []
+
+          def fail(msg):
+              print(f"FAIL: {msg}")
+              failures.append(msg)
+
+          options = Options()
+          options.add_argument("--headless=new")
+          options.add_argument("--no-sandbox")
+          options.add_argument("--disable-dev-shm-usage")
+          options.add_argument("--disable-gpu")
+          service = Service(ChromeDriverManager().install())
+          driver = webdriver.Chrome(service=service, options=options)
+          wait = WebDriverWait(driver, 10)
+
+          try:
+              # ── Login page loads from client container ──────────
+              print("--- Login page ---")
+              driver.get(CLIENT)
+              wait.until(EC.url_contains("/login"))
+              print(f"URL: {driver.current_url}")
+
+              try:
+                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'BuildValve')]")))
+                  print("OK: BuildValve branding on client container")
+              except:
+                  fail("BuildValve branding not found on client container")
+
+              # ── Login via local credentials (cross-origin to API) ──
+              print("--- Local login (cross-origin) ---")
+              try:
+                  wait.until(EC.presence_of_element_located((By.XPATH, "//input[@type='email']")))
+                  email_input = driver.find_element(By.XPATH, "//input[@type='email']")
+                  pass_input = driver.find_element(By.XPATH, "//input[@type='password']")
+                  email_input.send_keys("alice@company.com")
+                  pass_input.send_keys("secret123")
+                  submit_btn = driver.find_element(By.XPATH, "//button[@type='submit']")
+                  submit_btn.click()
+                  wait.until(lambda d: "/login" not in d.current_url)
+                  print(f"Logged in, URL: {driver.current_url}")
+              except Exception as e:
+                  fail(f"Local login: {e}")
+
+              # ── Dashboard loads with project ──────────────────
+              print("--- Dashboard ---")
+              try:
+                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Split Test Project')]")))
+                  print("OK: Project visible on dashboard (API data loaded cross-origin)")
+              except Exception as e:
+                  fail(f"Dashboard: {e}")
+
+              # ── Launch page with select variable ─────────────
+              print("--- Launch page with select ---")
+              try:
+                  driver.get(f"{CLIENT}/project/1/pipeline/Deploy")
+                  select_el = wait.until(EC.presence_of_element_located((By.XPATH, "//select")))
+                  from selenium.webdriver.support.ui import Select
+                  select = Select(select_el)
+                  option_texts = [o.text for o in select.options]
+                  assert "staging" in option_texts and "production" in option_texts, f"Options: {option_texts}"
+                  print(f"OK: Select dropdown works in split deployment: {option_texts}")
+              except Exception as e:
+                  fail(f"Launch page select: {e}")
+
+          except Exception as e:
+              fail(f"Unexpected error: {e}")
+              print(f"URL: {driver.current_url}")
+              print(f"Page source:\n{driver.page_source[:2000]}")
+          finally:
+              if failures:
+                  driver.save_screenshot("/tmp/split-selenium-failure.png")
+              driver.quit()
+
+          if failures:
+              print(f"\n{'='*50}")
+              print(f"{len(failures)} split UI test(s) failed:")
+              for f in failures:
+                  print(f"  - {f}")
+              sys.exit(1)
+          else:
+              print(f"\nAll split UI smoke tests passed")
+          PYEOF
+
+      - name: Upload screenshot on failure
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: split-selenium-screenshot
+          path: /tmp/split-selenium-failure.png
+          if-no-files-found: ignore
+
+      - name: Show container logs on failure
+        if: failure()
+        run: |
+          echo "=== Server ===" && docker logs split-server
+          echo "=== Client ===" && docker logs split-client
+
+      - name: Stop containers
+        if: always()
+        run: |
+          docker stop split-server split-client || true
