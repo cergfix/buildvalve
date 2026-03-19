@@ -40,6 +40,8 @@ export interface VariableConfig {
   locked: boolean;
   required?: boolean;
   description?: string;
+  type?: "text" | "select" | "radio"; // default: "text"
+  options?: string[]; // choices for select/radio
 }
 
 export interface PipelineConfig {

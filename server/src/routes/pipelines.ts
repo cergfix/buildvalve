@@ -420,6 +420,14 @@ function validateVariables(
         return `Variable "${varConfig.key}" is required`;
       }
     }
+
+    // Validate select/radio values against allowed options
+    if (varConfig.options && varConfig.options.length > 0 && !varConfig.locked) {
+      const value = userVars[varConfig.key] ?? varConfig.value;
+      if (value && !varConfig.options.includes(value)) {
+        return `Variable "${varConfig.key}" must be one of: ${varConfig.options.join(", ")}`;
+      }
+    }
   }
 
   const knownKeys = new Set(pipelineConfig.variables.map((v) => v.key));

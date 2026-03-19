@@ -69,6 +69,24 @@ projects:
             locked: false
             required: true
             description: "Docker image tag to deploy"
+          - key: REGION
+            value: us-east-1
+            locked: false
+            description: "AWS region to deploy to"
+            type: select
+            options:
+              - us-east-1
+              - us-west-2
+              - eu-west-1
+              - ap-southeast-1
+          - key: DRY_RUN
+            value: "true"
+            locked: false
+            description: "Simulate without applying changes"
+            type: radio
+            options:
+              - "true"
+              - "false"
 
   - id: "myorg/frontend"
     name: "Frontend App (GitHub)"

@@ -2,8 +2,7 @@ import { useState } from "react";
 import { pipelinesApi } from "../../api/queries";
 import type { PipelineConfig, VariableConfig } from "../../../../server/src/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "../ui/card";
-import { Input } from "../ui/input";
-import { Label } from "../ui/label";
+import { VariableField } from "../ui/variable-field";
 import { Button } from "../ui/button";
 import { Play } from "lucide-react";
 import { toast } from "sonner";
@@ -64,16 +63,13 @@ export function PipelineCard({ projectId, pipeline }: PipelineCardProps) {
           <p className="text-sm text-slate-500 italic mt-2">No variables configured.</p>
         ) : (
           pipeline.variables.map((vc: VariableConfig) => (
-            <div key={vc.key} className="space-y-1">
-              <Label className="font-semibold">{vc.key}</Label>
-              {vc.description && <p className="text-xs text-slate-500 mb-1">{vc.description}</p>}
-              <Input
-                value={vars[vc.key] ?? ""}
-                onChange={(e) => handleVarChange(vc.key, e.target.value)}
-                disabled={vc.locked}
-                className={vc.locked ? "bg-slate-100 text-slate-500 shadow-none border-slate-200" : "shadow-sm border-slate-300"}
-              />
-            </div>
+            <VariableField
+              key={vc.key}
+              config={vc}
+              value={vars[vc.key] ?? ""}
+              onChange={(val) => handleVarChange(vc.key, val)}
+              compact
+            />
           ))
         )}
       </CardContent>

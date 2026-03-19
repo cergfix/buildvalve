@@ -130,6 +130,8 @@ const schema = {
                       locked: { type: "boolean" },
                       required: { type: "boolean" },
                       description: { type: "string" },
+                      type: { type: "string", enum: ["text", "select", "radio"] },
+                      options: { type: "array", items: { type: "string" } },
                     },
                   },
                 },

@@ -3,9 +3,8 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { pipelinesApi } from "../api/queries";
 
-import { Input } from "../components/ui/input";
-import { Label } from "../components/ui/label";
 import { Button } from "../components/ui/button";
+import { VariableField } from "../components/ui/variable-field";
 import { Play, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import type { VariableConfig } from "../../../server/src/types";
@@ -84,19 +83,12 @@ export function PipelineLaunchPage() {
             <p className="text-slate-500 italic text-sm">No variables configured for this pipeline.</p>
           ) : (
             pipeline.variables.map((vc: VariableConfig) => (
-              <div key={vc.key} className="space-y-1.5">
-                <Label className="font-semibold text-sm">
-                  {vc.key}
-                  {vc.locked && <span className="text-red-500 text-[10px] font-normal ml-2 uppercase tracking-wide">(Locked)</span>}
-                </Label>
-                {vc.description && <p className="text-xs text-slate-500">{vc.description}</p>}
-                <Input
-                  value={vars[vc.key] ?? ""}
-                  onChange={(e) => handleVarChange(vc.key, e.target.value)}
-                  disabled={vc.locked}
-                  className={vc.locked ? "bg-slate-100 dark:bg-slate-800/80 text-slate-500 dark:text-slate-300 disabled:opacity-100 shadow-none border-slate-200 dark:border-slate-700 h-8 text-xs max-w-sm" : "shadow-sm border-slate-300 dark:border-slate-600 h-8 text-xs max-w-sm"}
-                />
-              </div>
+              <VariableField
+                key={vc.key}
+                config={vc}
+                value={vars[vc.key] ?? ""}
+                onChange={(val) => handleVarChange(vc.key, val)}
+              />
             ))
           )}
         </div>
