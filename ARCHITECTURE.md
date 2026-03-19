@@ -360,8 +360,10 @@ All CI providers implement the `CIProvider` interface. The pipeline router resol
 ### Two-Layer Permission Model
 Project-level permissions (`permissions[]`) control which projects a user can see. Pipeline-level restrictions (`allowed_users`/`allowed_groups`) further restrict individual pipelines within an allowed project. Both layers are checked on every API call.
 
-### Variable Locking
+### Variable Locking and Types
 `locked: true` variables are never sent to the client; they are injected server-side. Users cannot observe or override them. This is the primary security control for gating pipeline behaviour.
+
+Variables support three input types: `text` (free-form input, default), `select` (dropdown), and `radio` (inline radio buttons). When `options` is set on a variable, the server validates that submitted values are in the allowed list before triggering the pipeline — invalid values are rejected with a 400 error.
 
 ### SSE over WebSocket
 Server-Sent Events were chosen over WebSocket because the data flow is strictly server-to-client (status updates, log streaming). SSE works through corporate proxies without special configuration, requires no extra dependencies, and browsers auto-reconnect on disconnect.

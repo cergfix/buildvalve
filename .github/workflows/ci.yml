@@ -153,6 +153,18 @@ jobs:
                       value: staging
                       locked: false
                       description: Target environment
+                      type: select
+                      options:
+                        - staging
+                        - production
+                    - key: DRY_RUN
+                      value: "true"
+                      locked: false
+                      description: Simulate without applying
+                      type: radio
+                      options:
+                        - "true"
+                        - "false"
             - id: api-service
               name: API Service (CircleCI)
               description: A CircleCI project
@@ -272,12 +284,27 @@ jobs:
           GL_PID=$(echo "$TRIGGER_GL" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
           echo "Triggered GitLab pipeline ID: $GL_PID"
 
-          echo "--- POST /api/pipelines/trigger (GitHub project) ---"
+          echo "--- POST /api/pipelines/trigger (GitHub project with select/radio) ---"
           TRIGGER_GH=$(curl -sf -b "$CJ" -X POST http://localhost:3000/api/pipelines/trigger \
             -H 'Content-Type: application/json' \
-            -d '{"projectId":"frontend","pipelineName":"Build & Deploy","variables":{"ENVIRONMENT":"staging"}}')
+            -d '{"projectId":"frontend","pipelineName":"Build & Deploy","variables":{"ENVIRONMENT":"staging","DRY_RUN":"true"}}')
           echo "$TRIGGER_GH"
           echo "$TRIGGER_GH" | grep -q '"provider":"github-actions"'
+          echo "OK: trigger with valid select+radio values succeeded"
+
+          echo "--- Trigger with invalid select option returns 400 ---"
+          CODE=$(curl -s -b "$CJ" -o /dev/null -w '%{http_code}' -X POST http://localhost:3000/api/pipelines/trigger \
+            -H 'Content-Type: application/json' \
+            -d '{"projectId":"frontend","pipelineName":"Build & Deploy","variables":{"ENVIRONMENT":"invalid-env","DRY_RUN":"true"}}')
+          [ "$CODE" = "400" ] || { echo "FAIL: expected 400, got $CODE"; exit 1; }
+          echo "OK: invalid select option → 400"
+
+          echo "--- Trigger with invalid radio option returns 400 ---"
+          CODE=$(curl -s -b "$CJ" -o /dev/null -w '%{http_code}' -X POST http://localhost:3000/api/pipelines/trigger \
+            -H 'Content-Type: application/json' \
+            -d '{"projectId":"frontend","pipelineName":"Build & Deploy","variables":{"ENVIRONMENT":"staging","DRY_RUN":"maybe"}}')
+          [ "$CODE" = "400" ] || { echo "FAIL: expected 400, got $CODE"; exit 1; }
+          echo "OK: invalid radio option → 400"
 
           echo "--- POST /api/pipelines/trigger (CircleCI project) ---"
           TRIGGER_CC=$(curl -sf -b "$CJ" -X POST http://localhost:3000/api/pipelines/trigger \
@@ -710,6 +737,54 @@ jobs:
                   print("OK: Pipeline launch page loaded")
               except Exception as e:
                   fail(f"Pipeline launch page: {e}")
+
+              # ── Select and radio variable types ──────────────────
+              print("--- Select and radio variable types ---")
+              try:
+                  # Navigate to the GitHub project's Build & Deploy launch page (has select + radio)
+                  driver.get(f"{BASE}/project/frontend/pipeline/Build%20%26%20Deploy")
+                  wait.until(EC.presence_of_element_located((By.XPATH, "//button[contains(text(), 'Launch')]")))
+
+                  # Verify select dropdown exists for ENVIRONMENT
+                  select_el = wait.until(EC.presence_of_element_located((By.XPATH, "//select")))
+                  print(f"OK: Select dropdown found")
+
+                  # Verify select has the expected options
+                  from selenium.webdriver.support.ui import Select
+                  select = Select(select_el)
+                  option_texts = [o.text for o in select.options]
+                  assert "staging" in option_texts, f"'staging' not in options: {option_texts}"
+                  assert "production" in option_texts, f"'production' not in options: {option_texts}"
+                  print(f"OK: Select options present: {option_texts}")
+
+                  # Verify radio buttons exist for DRY_RUN
+                  radios = driver.find_elements(By.XPATH, "//input[@type='radio']")
+                  assert len(radios) >= 2, f"Expected at least 2 radio buttons, found {len(radios)}"
+                  print(f"OK: Radio buttons found ({len(radios)})")
+
+                  # Verify radio labels
+                  radio_labels = driver.find_elements(By.XPATH, "//input[@type='radio']/ancestor::label")
+                  label_texts = [l.text for l in radio_labels]
+                  assert "true" in label_texts, f"'true' not in radio labels: {label_texts}"
+                  assert "false" in label_texts, f"'false' not in radio labels: {label_texts}"
+                  print(f"OK: Radio labels present: {label_texts}")
+
+                  # Change select value
+                  select.select_by_visible_text("production")
+                  assert select.first_selected_option.text == "production"
+                  print("OK: Select value changed to 'production'")
+
+                  # Click a radio button
+                  false_radio = driver.find_element(By.XPATH, "//input[@type='radio'][@value='false']")
+                  false_radio.click()
+                  assert false_radio.is_selected()
+                  print("OK: Radio button 'false' selected")
+              except Exception as e:
+                  fail(f"Select/radio variable types: {e}")
+
+              # Go back to dashboard for remaining tests
+              driver.get(BASE)
+              wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Test Project')]")))
 
               # ── Per-pipeline permissions (alice is in devops) ──────
               print("--- Per-pipeline permissions ---")

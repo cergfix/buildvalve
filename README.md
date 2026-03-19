@@ -407,6 +407,34 @@ projects:
 | `locked` | If `true`, value is injected server-side and never sent to the browser |
 | `required` | If `true`, user must provide a value before launching |
 | `description` | Help text shown in the launch form |
+| `type` | `text` (default), `select` (dropdown), or `radio` (inline radio buttons) |
+| `options` | Array of allowed values for `select`/`radio` types — server rejects values not in this list |
+
+**Variable type examples:**
+
+```yaml
+variables:
+  # Free text (default)
+  - key: VERSION
+    value: ""
+    locked: false
+    required: true
+    description: "Docker image tag"
+
+  # Dropdown select
+  - key: REGION
+    value: us-east-1
+    locked: false
+    type: select
+    options: [us-east-1, us-west-2, eu-west-1]
+
+  # Radio buttons
+  - key: DRY_RUN
+    value: "true"
+    locked: false
+    type: radio
+    options: ["true", "false"]
+```
 
 ### Backward compatibility
 
