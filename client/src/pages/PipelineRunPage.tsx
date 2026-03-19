@@ -1,25 +1,29 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { pipelinesApi } from "../api/queries";
+import { usePipelineStream } from "../hooks/useSSE";
 import type { CIJobDetail } from "../api/types";
 
 import { Badge } from "../components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
-import { ArrowLeft, ExternalLink, Loader2, CheckCircle, XCircle, Terminal } from "lucide-react";
+import { ArrowLeft, ExternalLink, Loader2, CheckCircle, XCircle, Terminal, Radio } from "lucide-react";
 
 export function PipelineRunPage() {
   const { projectId, pipelineName, runId } = useParams();
   const navigate = useNavigate();
 
-  const { data, isLoading, error } = useQuery({
+  // Initial fetch via REST
+  const { data: initialData, isLoading, error } = useQuery({
     queryKey: ["pipelineRun", projectId, runId],
     queryFn: () => pipelinesApi.getPipeline(projectId!, runId!),
-    refetchInterval: (query) => {
-      const status = query.state.data?.pipeline?.status;
-      if (status === "success" || status === "failed" || status === "canceled") return false;
-      return 3000;
-    }
+    staleTime: Infinity, // SSE will handle updates
   });
+
+  // SSE for live updates
+  const { data: streamData, isConnected } = usePipelineStream(projectId!, runId!);
+
+  // Use stream data when available, fall back to initial fetch
+  const data = streamData ?? initialData;
 
   const getStatusIcon = (status: string) => {
     switch(status) {
@@ -40,8 +44,9 @@ export function PipelineRunPage() {
     }
   };
 
-  if (isLoading) return <div className="p-8"><Loader2 className="animate-spin" /></div>;
-  if (error || !data) return <div className="p-8 text-red-500">Error loading pipeline run</div>;
+  if (isLoading && !data) return <div className="p-8"><Loader2 className="animate-spin" /></div>;
+  if (error && !data) return <div className="p-8 text-red-500">Error loading pipeline run</div>;
+  if (!data) return null;
 
   const { pipeline, jobs } = data;
 
@@ -119,8 +124,17 @@ export function PipelineRunPage() {
 
       {pipeline.status === "running" && (
         <div className="flex items-center gap-2 text-slate-500 text-sm italic w-full justify-center">
-          <Loader2 size={14} className="animate-spin" />
-          Live updating...
+          {isConnected ? (
+            <>
+              <Radio size={14} className="text-green-500" />
+              Live streaming via SSE
+            </>
+          ) : (
+            <>
+              <Loader2 size={14} className="animate-spin" />
+              Connecting...
+            </>
+          )}
         </div>
       )}
     </div>

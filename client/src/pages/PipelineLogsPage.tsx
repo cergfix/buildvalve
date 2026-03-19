@@ -1,39 +1,13 @@
 import { useRef, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { pipelinesApi } from "../api/queries";
-import type { CIJobDetail } from "../api/types";
-import { ArrowLeft, Loader2, Terminal } from "lucide-react";
+import { useLogStream } from "../hooks/useSSE";
+import { ArrowLeft, Loader2, Terminal, Radio } from "lucide-react";
 
 export function PipelineLogsPage() {
   const { projectId, pipelineName, runId, jobId } = useParams();
   const navigate = useNavigate();
 
-  const { data: pipelineData } = useQuery({
-    queryKey: ["pipelineRun", projectId, runId],
-    queryFn: () => pipelinesApi.getPipeline(projectId!, runId!),
-    refetchInterval: (query) => {
-      const currentJobStatus = query.state.data?.jobs?.find((j: CIJobDetail) => j.id === jobId)?.status;
-      if (currentJobStatus === "running" || currentJobStatus === "pending") return 3000;
-      return false;
-    }
-  });
-
-  const job = pipelineData?.jobs?.find((j: CIJobDetail) => j.id === jobId);
-  const isRunning = job?.status === "running" || job?.status === "pending" || job?.status === "created";
-
-  const { data: logs, isLoading: logsLoading, error } = useQuery({
-    queryKey: ["jobTrace", projectId, jobId],
-    queryFn: async () => {
-      const res = await fetch(`/api/pipelines/${encodeURIComponent(projectId!)}/jobs/${encodeURIComponent(jobId!)}/trace`);
-      if (!res.ok) throw new Error("Failed to fetch logs");
-      return res.text();
-    },
-    refetchInterval: () => {
-      if (isRunning) return 3000;
-      return false;
-    }
-  });
+  const { logs, isConnected, isDone } = useLogStream(projectId!, jobId!, runId);
 
   const scrollRef = useRef<HTMLPreElement>(null);
 
@@ -56,8 +30,12 @@ export function PipelineLogsPage() {
         <div className="border-b-[1.5px] border-slate-200 pb-4">
           <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2">
             <Terminal size={24} className="text-primary" />
-            Job Logs: {job?.name || `Job #${jobId}`}
-            {isRunning && <Loader2 size={16} className="animate-spin text-blue-500 ml-2" />}
+            Job Logs: Job #{jobId}
+            {!isDone && (
+              isConnected
+                ? <Radio size={14} className="text-green-500 ml-2" />
+                : <Loader2 size={16} className="animate-spin text-blue-500 ml-2" />
+            )}
           </h2>
           <p className="text-slate-500 mt-1">
             Running in pipeline for {pipelineName}
@@ -70,10 +48,8 @@ export function PipelineLogsPage() {
           ref={scrollRef}
           className="flex-1 overflow-y-auto bg-slate-950 text-slate-300 p-6 font-mono text-sm shadow-inner leading-relaxed whitespace-pre-wrap"
         >
-          {logsLoading ? (
+          {!logs && !isDone ? (
             <span className="flex items-center gap-2 text-slate-500"><Loader2 className="animate-spin" size={16} /> Fetching logs...</span>
-          ) : error ? (
-            <span className="text-red-400">Error loading logs.</span>
           ) : (
             logs || "No logs available."
           )}

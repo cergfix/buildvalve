@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { getAllowedProjectIds, getAllowedProjects, isAuthorized } from "./permissions.js";
-import type { AppConfig, AuthUser } from "../types/index.js";
+import { getAllowedProjectIds, getAllowedProjects, isAuthorized, isPipelineAuthorized } from "./permissions.js";
+import type { AppConfig, AuthUser, PipelineConfig } from "../types/index.js";
 
 function makeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
@@ -96,5 +96,56 @@ describe("isAuthorized", () => {
       permissions: [{ users: ["alice@example.com"], projects: ["1"] }],
     });
     expect(isAuthorized(makeUser(), "2", config)).toBe(false);
+  });
+});
+
+describe("isPipelineAuthorized", () => {
+  const basePipeline: PipelineConfig = { name: "deploy", ref: "main", variables: [] };
+
+  it("allows access when no restrictions are set", () => {
+    expect(isPipelineAuthorized(makeUser(), basePipeline)).toBe(true);
+  });
+
+  it("allows access when allowed_users includes user email", () => {
+    const pipeline = { ...basePipeline, allowed_users: ["alice@example.com", "bob@example.com"] };
+    expect(isPipelineAuthorized(makeUser(), pipeline)).toBe(true);
+  });
+
+  it("denies access when allowed_users does not include user email", () => {
+    const pipeline = { ...basePipeline, allowed_users: ["bob@example.com"] };
+    expect(isPipelineAuthorized(makeUser(), pipeline)).toBe(false);
+  });
+
+  it("allows access when user is in an allowed group", () => {
+    const pipeline = { ...basePipeline, allowed_groups: ["devops"] };
+    const user = makeUser({ groups: ["devops", "eng"] });
+    expect(isPipelineAuthorized(user, pipeline)).toBe(true);
+  });
+
+  it("denies access when user is not in any allowed group", () => {
+    const pipeline = { ...basePipeline, allowed_groups: ["devops"] };
+    const user = makeUser({ groups: ["eng"] });
+    expect(isPipelineAuthorized(user, pipeline)).toBe(false);
+  });
+
+  it("denies access when user has no groups and only group restriction exists", () => {
+    const pipeline = { ...basePipeline, allowed_groups: ["devops"] };
+    expect(isPipelineAuthorized(makeUser(), pipeline)).toBe(false);
+  });
+
+  it("allows access when user matches allowed_users but not allowed_groups", () => {
+    const pipeline = { ...basePipeline, allowed_users: ["alice@example.com"], allowed_groups: ["admin"] };
+    expect(isPipelineAuthorized(makeUser(), pipeline)).toBe(true);
+  });
+
+  it("allows access when user matches allowed_groups but not allowed_users", () => {
+    const pipeline = { ...basePipeline, allowed_users: ["bob@example.com"], allowed_groups: ["eng"] };
+    const user = makeUser({ groups: ["eng"] });
+    expect(isPipelineAuthorized(user, pipeline)).toBe(true);
+  });
+
+  it("treats empty arrays as no restriction", () => {
+    const pipeline = { ...basePipeline, allowed_users: [], allowed_groups: [] };
+    expect(isPipelineAuthorized(makeUser(), pipeline)).toBe(true);
   });
 });

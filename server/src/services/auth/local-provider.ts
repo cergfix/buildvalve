@@ -3,6 +3,7 @@ import type { Router } from "express";
 import type { AuthProvider } from "./types.js";
 import type { LocalProviderConfig, AppConfig } from "../../types/index.js";
 import { logger } from "../../utils/logger.js";
+import { audit } from "../../utils/audit.js";
 
 function sha256(input: string): string {
   return createHash("sha256").update(input).digest("hex");
@@ -38,6 +39,7 @@ export class LocalProvider implements AuthProvider {
       });
 
       if (!matchedUser) {
+        audit({ email, provider: "local" }, "login_failed", { reason: "invalid_credentials" });
         return res.status(401).json({ error: "Invalid email or password" });
       }
 
@@ -57,6 +59,7 @@ export class LocalProvider implements AuthProvider {
       });
 
       if (!hasAccess) {
+        audit(user, "login_failed", { reason: "access_denied" });
         return res.status(403).json({ error: "Access denied" });
       }
 
@@ -66,6 +69,7 @@ export class LocalProvider implements AuthProvider {
           logger.error("Local auth session save error", { error: err });
           return res.status(500).json({ error: "Session error" });
         }
+        audit(user, "login");
         return res.json({ ok: true });
       });
     });

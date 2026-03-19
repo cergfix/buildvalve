@@ -1,6 +1,7 @@
 import { Router } from "express";
 import type { AppConfig } from "../types/index.js";
 import { requireAuth } from "../middleware/requireAuth.js";
+import { audit } from "../utils/audit.js";
 
 export function createAdminRouter(config: AppConfig): Router {
   const router = Router();
@@ -29,13 +30,6 @@ export function createAdminRouter(config: AppConfig): Router {
       }
     }
 
-    // Redact per-project token overrides
-    if (Array.isArray((safeConfig as any).projects)) {
-      for (const project of (safeConfig as any).projects) {
-        if (project.token_override) project.token_override = "REDACTED";
-      }
-    }
-
     // Redact auth provider secrets
     if ((safeConfig as any).auth?.providers) {
       for (const provider of (safeConfig as any).auth.providers) {
@@ -44,6 +38,7 @@ export function createAdminRouter(config: AppConfig): Router {
       }
     }
 
+    audit(req.session.user!, "admin_config_viewed");
     res.json(safeConfig);
   });
 

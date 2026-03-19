@@ -16,7 +16,7 @@ function makeConfig(admins?: string[]): AppConfig {
     },
     session: { secret: "my-session-secret", max_age: 3600 },
     projects: [
-      { id: "1", name: "P", provider: "default", external_id: "1", token_override: "project-secret", pipelines: [] },
+      { id: "1", name: "P", provider: "default", external_id: "1", pipelines: [] },
     ],
     permissions: [],
     admins,
@@ -68,8 +68,6 @@ describe("admin config endpoint", () => {
     // CI provider secrets redacted
     expect(returnedConfig.ci_providers[0].token).toBe("REDACTED");
     expect(returnedConfig.ci_providers[1].github_token).toBe("REDACTED");
-    // Per-project token override redacted
-    expect(returnedConfig.projects[0].token_override).toBe("REDACTED");
   });
 
   it("does not mutate the original config", () => {

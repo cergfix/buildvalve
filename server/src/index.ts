@@ -89,36 +89,6 @@ for (const providerConfig of config.ci_providers) {
   logger.info(`CI provider registered: ${providerConfig.name} (${providerConfig.type}${providerConfig.mock ? ", mock" : ""})`);
 }
 
-// Handle per-project token overrides: create override provider instances
-for (const project of config.projects) {
-  if (!project.token_override) continue;
-
-  const baseProvider = config.ci_providers.find((p) => p.name === project.provider);
-  if (!baseProvider) continue;
-
-  const overrideName = `${project.provider}::${project.id}`;
-
-  if (baseProvider.mock) {
-    registerCIProvider(new MockCIProvider(overrideName, baseProvider.type));
-  } else {
-    switch (baseProvider.type) {
-      case "gitlab":
-        registerCIProvider(new GitLabProvider(overrideName, baseProvider.url!, project.token_override));
-        break;
-      case "github-actions":
-        registerCIProvider(new GitHubActionsProvider(overrideName, project.token_override, baseProvider.github_api_url));
-        break;
-      case "circleci":
-        registerCIProvider(new CircleCIProvider(overrideName, project.token_override, baseProvider.circleci_api_url));
-        break;
-    }
-  }
-
-  // Point this project to the override provider
-  (project as { provider: string }).provider = overrideName;
-  logger.info(`Token override registered for project "${project.name}" -> ${overrideName}`);
-}
-
 // Express app
 const app = express();
 

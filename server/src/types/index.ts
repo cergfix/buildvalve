@@ -47,6 +47,8 @@ export interface PipelineConfig {
   ref: string;
   workflow_id?: string; // GitHub Actions: workflow filename or ID
   variables: VariableConfig[];
+  allowed_users?: string[];  // restrict this pipeline to specific users (within project permissions)
+  allowed_groups?: string[]; // restrict this pipeline to specific groups
 }
 
 export interface ProjectConfig {
@@ -55,7 +57,6 @@ export interface ProjectConfig {
   description?: string;
   provider: string; // references ci_providers[].name
   external_id: string; // provider-specific project identifier (e.g. "42", "owner/repo", "gh/org/repo")
-  token_override?: string; // optional per-project secret override
   pipelines: PipelineConfig[];
 }
 

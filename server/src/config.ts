@@ -108,7 +108,6 @@ const schema = {
           description: { type: "string" },
           provider: { type: "string" },
           external_id: { type: ["string", "number"] },
-          token_override: { type: "string" },
           pipelines: {
             type: "array",
             items: {
@@ -118,6 +117,8 @@ const schema = {
                 name: { type: "string" },
                 ref: { type: "string" },
                 workflow_id: { type: "string" },
+                allowed_users: { type: "array", items: { type: "string" } },
+                allowed_groups: { type: "array", items: { type: "string" } },
                 variables: {
                   type: "array",
                   items: {

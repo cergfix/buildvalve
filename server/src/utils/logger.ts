@@ -15,19 +15,12 @@ export const logger = winston.createLogger({
     winston.format.json()
   ),
   transports: [
+    new winston.transports.Console({
+      format: process.env.NODE_ENV === "production"
+        ? winston.format.combine(winston.format.timestamp(), winston.format.json())
+        : winston.format.combine(winston.format.colorize(), winston.format.simple()),
+    }),
     new winston.transports.File({ filename: path.join(logDir, "error.log"), level: "error" }),
     new winston.transports.File({ filename: path.join(logDir, "audit.log") }),
   ],
 });
-
-// If we're not in production, you might also want to log to the console
-if (process.env.NODE_ENV !== "production") {
-  logger.add(
-    new winston.transports.Console({
-      format: winston.format.combine(
-        winston.format.colorize(),
-        winston.format.simple()
-      ),
-    })
-  );
-}

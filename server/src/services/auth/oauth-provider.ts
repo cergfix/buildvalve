@@ -2,6 +2,7 @@ import type { Router, Request, Response } from "express";
 import type { AuthProvider } from "./types.js";
 import type { AuthUser, OAuthProviderConfig, AppConfig } from "../../types/index.js";
 import { logger } from "../../utils/logger.js";
+import { audit } from "../../utils/audit.js";
 
 function getRedirectUrl(req: Request, path: string): string {
   const corsOrigin = process.env.CORS_ORIGIN;
@@ -122,7 +123,7 @@ export class OAuthProvider implements AuthProvider {
         });
 
         if (!hasAccess) {
-          logger.warn(`Access denied for user ${user.email} (provider: ${this.type})`);
+          audit(user, "login_failed", { reason: "access_denied" });
           return res.redirect(getRedirectUrl(req, "/login?error=access_denied"));
         }
 
@@ -132,6 +133,7 @@ export class OAuthProvider implements AuthProvider {
             logger.error(`OAuth ${this.type} session save error`, { error: err });
             return res.redirect(getRedirectUrl(req, "/login?error=session_error"));
           }
+          audit(user, "login");
           return res.redirect(getRedirectUrl(req, "/"));
         });
       } catch (err) {
