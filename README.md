@@ -1,12 +1,12 @@
-# BuildValve 🚀
+# BuildValve
 
 [![CI](https://github.com/cergfix/buildvalve/actions/workflows/ci.yml/badge.svg)](https://github.com/cergfix/buildvalve/actions/workflows/ci.yml)
 
-**A self-hosted, team-friendly GitLab pipeline launcher.**
+**A self-hosted, team-friendly CI/CD pipeline launcher.**
 
 ![BuildValve Preview](preview.png)
 
-BuildValve lets you give your team a simple dashboard of big "Launch" buttons for their most-used GitLab pipelines — without handing out Developer access, exposing raw CI variables, or forcing everyone to learn the GitLab UI.
+BuildValve lets you give your team a simple dashboard of big "Launch" buttons for their CI/CD pipelines across **GitLab**, **GitHub Actions**, and **CircleCI** — without handing out direct access, exposing raw CI variables, or forcing everyone to learn each provider's UI.
 
 You configure which pipelines are available and who can trigger them. Your team logs in via your company's SSO and simply clicks **Launch**.
 
@@ -14,11 +14,13 @@ You configure which pipelines are available and who can trigger them. Your team 
 
 ## Why BuildValve?
 
-- **No GitLab accounts needed for users** — a single service account token handles all GitLab API calls.
+- **Multi-provider** — GitLab, GitHub Actions, and CircleCI projects on the same dashboard.
+- **No CI accounts needed for users** — service account tokens handle all API calls.
+- **Per-pipeline permissions** — restrict sensitive pipelines to specific users or groups.
 - **Safe variable pre-filling** — lock sensitive variables server-side so users can't override them.
-- **Audit-ready** — every pipeline trigger is logged with the user's email.
-- **SSO-native** — integrates with SAML 2.0 (Okta, Azure AD, Keycloak, ADFS, etc.).
-- **Live monitoring** — watch job status, tail live logs, and browse execution history without leaving the app.
+- **Audit-ready** — every action is logged with the user's email (login, trigger, view, admin).
+- **SSO-native** — integrates with SAML 2.0, GitHub OAuth, Google OAuth, GitLab OAuth, or local accounts.
+- **Live monitoring** — SSE-powered real-time pipeline status and live job log streaming.
 
 ---
 
@@ -29,10 +31,11 @@ The fastest way to run BuildValve. No Node.js installation required.
 **1. Create a config file** (`config.yml`):
 
 ```yaml
-gitlab:
-  url: https://gitlab.example.com
-  service_account_token: glpat-xxxxxxxxxxxx
-  mock: false
+ci_providers:
+  - name: gitlab-corp
+    type: gitlab
+    url: https://gitlab.example.com
+    token: glpat-xxxxxxxxxxxx
 
 auth:
   providers:
@@ -51,11 +54,13 @@ session:
 
 permissions:
   - groups: [devops-team]
-    projects: [42]
+    projects: ["42"]
 
 projects:
-  - id: 42
+  - id: "42"
     name: "My App"
+    provider: gitlab-corp
+    external_id: "42"
     pipelines:
       - name: "Deploy"
         ref: main
@@ -84,15 +89,16 @@ Open **http://localhost:3000** and you're done.
 
 ## Try It Locally (no config needed)
 
-A ready-made dev config with mock auth and mock GitLab is included in the `dev/` directory. One command to go from zero to a running dashboard:
+A ready-made dev config with mock auth and mock CI providers is included in the `dev/` directory. One command to go from zero to a running dashboard:
 
 ```bash
 ./dev/start.sh
 ```
 
 This builds a derived Docker image from `dev/Dockerfile` (which copies `dev/config.yml` into the base image) and runs it with:
-- **Mock auth** — click "Bypass Login (Dev)" to sign in as `alice@company.com`
-- **Mock GitLab** — pipeline triggers are simulated in-memory and auto-complete after ~15 seconds
+- **Mock auth** — click "Bypass Login (Dev)" to sign in as `bob@company.com`
+- **Mock CI providers** — pipeline triggers are simulated in-memory and auto-complete after ~15 seconds
+- **Three providers configured** — GitLab, GitHub Actions, and CircleCI mock projects
 
 Open **http://localhost:3000** and click the login button.
 
@@ -104,8 +110,8 @@ Open **http://localhost:3000** and click the login button.
 
 ### Requirements
 
-- **Node.js** ≥ 22 (use `nvm use` if you have [nvm](https://github.com/nvm-sh/nvm) installed — a `.nvmrc` is included)
-- A **GitLab service account token** (`glpat-*`) with Developer access to the projects you want to expose
+- **Node.js** >= 22 (use `nvm use` if you have [nvm](https://github.com/nvm-sh/nvm) installed — a `.nvmrc` is included)
+- A **CI provider service account token** for the providers you want to use
 - A **SAML 2.0 IdP** for production use (Okta, Azure AD, Keycloak, ADFS)
 
 ### 1. Clone and install
@@ -167,10 +173,12 @@ All configuration lives in **`config/config.yml`**. This file is gitignored — 
 ### Minimal example (development)
 
 ```yaml
-gitlab:
-  url: https://gitlab.example.com
-  service_account_token: glpat-xxxxxxxxxxxx
-  mock: true                  # Use mock GitLab — no real API calls
+ci_providers:
+  - name: default
+    type: gitlab
+    url: https://gitlab.example.com
+    token: glpat-xxxxxxxxxxxx
+    mock: true                    # Use mock CI — no real API calls
 
 auth:
   providers:
@@ -184,18 +192,20 @@ auth:
 
 session:
   secret: any-random-string-here
-  max_age: 86400              # Session duration in seconds (86400 = 24 hours)
+  max_age: 86400
 
 admins:
-  - alice@company.com         # Users who can view the Admin Settings page
+  - alice@company.com
 
 permissions:
   - users: [alice@company.com]
-    projects: [42]
+    projects: ["42"]
 
 projects:
-  - id: 42                    # Your GitLab project ID
+  - id: "42"
     name: "My App"
+    provider: default
+    external_id: "42"
     description: "Main service"
     pipelines:
       - name: "Deploy to Staging"
@@ -203,7 +213,7 @@ projects:
         variables:
           - key: ENVIRONMENT
             value: staging
-            locked: true      # Users cannot change this
+            locked: true
           - key: VERSION
             value: ""
             locked: false
@@ -211,13 +221,63 @@ projects:
             description: "Docker image tag to deploy"
 ```
 
+### Multi-provider example
+
+```yaml
+ci_providers:
+  - name: gitlab-corp
+    type: gitlab
+    url: https://gitlab.example.com
+    token: glpat-xxxxxxxxxxxx
+  - name: github-oss
+    type: github-actions
+    github_token: ghp-xxxxxxxxxxxx
+  - name: circleci-main
+    type: circleci
+    circleci_token: cc-xxxxxxxxxxxx
+
+projects:
+  - id: backend
+    name: "Backend API"
+    provider: gitlab-corp
+    external_id: "42"
+    pipelines:
+      - name: "Deploy to Staging"
+        ref: staging
+        variables: []
+      - name: "Deploy to Production"
+        ref: main
+        allowed_groups: [devops]    # only devops can see/trigger this pipeline
+        variables: []
+
+  - id: frontend
+    name: "Frontend App"
+    provider: github-oss
+    external_id: myorg/frontend
+    pipelines:
+      - name: "Deploy"
+        ref: main
+        workflow_id: deploy.yml     # GitHub Actions workflow file
+        variables: []
+
+  - id: api
+    name: "API Service"
+    provider: circleci-main
+    external_id: gh/myorg/api
+    pipelines:
+      - name: "Release"
+        ref: main
+        variables: []
+```
+
 ### Full production example (SAML)
 
 ```yaml
-gitlab:
-  url: https://gitlab.example.com
-  service_account_token: glpat-xxxxxxxxxxxx
-  mock: false
+ci_providers:
+  - name: gitlab-corp
+    type: gitlab
+    url: https://gitlab.example.com
+    token: glpat-xxxxxxxxxxxx
 
 auth:
   providers:
@@ -228,28 +288,30 @@ auth:
       issuer: https://buildvalve.example.com
       callback_url: https://buildvalve.example.com/api/auth/saml/callback
       cert: |
-        MIICpDCCAYwCCQDU+pQ4pHgSp...    # Your IdP's public cert
+        MIICpDCCAYwCCQDU+pQ4pHgSp...
       attribute_mapping:
         email: http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress
         groups: http://schemas.xmlsoap.org/claims/Group
 
 session:
   secret: a-long-random-secret-change-this
-  max_age: 28800              # 8 hours
+  max_age: 28800
 
 admins:
   - platform@example.com
 
 permissions:
-  - groups: [devops-team]     # Everyone in this SAML group can trigger...
-    projects: [42, 55]        # ...these GitLab projects
+  - groups: [devops-team]
+    projects: ["42", "55"]
 
-  - users: [charlie@example.com]  # Or grant individual users
-    projects: [42]
+  - users: [charlie@example.com]
+    projects: ["42"]
 
 projects:
-  - id: 42
+  - id: "42"
     name: "Backend API"
+    provider: gitlab-corp
+    external_id: "42"
     description: "Main backend service"
     pipelines:
       - name: "Deploy to Staging"
@@ -266,6 +328,7 @@ projects:
 
       - name: "Deploy to Production"
         ref: main
+        allowed_groups: [devops-team]
         variables:
           - key: ENVIRONMENT
             value: production
@@ -275,14 +338,11 @@ projects:
             locked: false
             required: true
             description: "Docker image tag to deploy"
-          - key: DRY_RUN
-            value: "true"
-            locked: false
-            required: false
-            description: "Simulate the deploy without applying changes"
 
-  - id: 55
+  - id: "55"
     name: "Frontend App"
+    provider: gitlab-corp
+    external_id: "55"
     description: "Customer-facing SPA"
     pipelines:
       - name: "Build & Deploy"
@@ -294,15 +354,49 @@ projects:
 
 | Key | Required | Description |
 |-----|----------|-------------|
-| `gitlab.url` | ✅ | Base URL of your GitLab instance |
-| `gitlab.service_account_token` | ✅ | `glpat-*` token with Developer access |
-| `gitlab.mock` | | `true` to use in-memory mock (no real GitLab calls, dev only) |
+| `ci_providers` | ✅ | Array of CI provider definitions (see below) |
 | `session.secret` | ✅ | Random string for signing session cookies |
 | `session.max_age` | | Session duration in seconds (default: 86400) |
 | `admins` | | List of emails that can view the Admin Settings page |
 | `auth.providers` | ✅ | At least one enabled auth provider (`saml`, `github`, `google`, `gitlab`, `local`, `mock`) |
 | `permissions` | ✅ | Who can trigger which projects |
 | `projects` | ✅ | Project and pipeline definitions |
+
+### CI provider options
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `name` | ✅ | Unique identifier referenced by projects |
+| `type` | ✅ | `gitlab`, `github-actions`, or `circleci` |
+| `mock` | | `true` for in-memory mock (dev only) |
+| `url` | GitLab | Base URL of your GitLab instance |
+| `token` | GitLab | `glpat-*` service account token |
+| `github_token` | GitHub | Personal access token or GitHub App token |
+| `github_api_url` | | Custom API URL for GitHub Enterprise (default: `https://api.github.com`) |
+| `circleci_token` | CircleCI | CircleCI API token |
+| `circleci_api_url` | | Custom API URL for CircleCI Server (default: `https://circleci.com`) |
+
+### Project options
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `id` | ✅ | Unique string identifier (used in URLs and permissions) |
+| `name` | ✅ | Display name |
+| `description` | | Display description |
+| `provider` | ✅ | References a `ci_providers[].name` |
+| `external_id` | ✅ | Provider-specific project identifier (e.g. `"42"`, `"owner/repo"`, `"gh/org/repo"`) |
+| `pipelines` | ✅ | Array of pipeline definitions |
+
+### Pipeline options
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `name` | ✅ | Display name |
+| `ref` | ✅ | Git ref (branch/tag) to run against |
+| `workflow_id` | GitHub | Workflow filename or ID (e.g. `deploy.yml`) |
+| `allowed_users` | | Restrict to these users (within project permissions) |
+| `allowed_groups` | | Restrict to these groups |
+| `variables` | | Array of variable definitions |
 
 ### Variable options
 
@@ -313,6 +407,10 @@ projects:
 | `locked` | If `true`, value is injected server-side and never sent to the browser |
 | `required` | If `true`, user must provide a value before launching |
 | `description` | Help text shown in the launch form |
+
+### Backward compatibility
+
+The legacy `gitlab:` top-level config block is still accepted and auto-migrates to a `ci_providers` entry named `"default"`. Numeric project IDs are auto-converted to strings. Existing v0.2.x configs work without changes.
 
 ---
 
@@ -410,12 +508,10 @@ auth:
       label: "Local Account"
       users:
         - email: alice@company.com
-          username: alice
           password: changeme             # plain text (dev only)
           groups: [devops-team]
 
         - email: bob@company.com
-          username: bob
           password_hash: "5e884898da..."  # sha256 hex digest of password
           groups: [devops-team]
 ```
@@ -446,10 +542,10 @@ Mock pipelines auto-complete after ~15 seconds and reset when the server restart
 
 | Page | URL | What it does |
 |------|-----|-------------|
-| Dashboard | `/` | Table of all your allowed projects and pipelines |
+| Pipelines | `/` | Table of all your allowed projects and pipelines |
 | Launch | `/project/:id/pipeline/:name` | Fill in variables and launch a pipeline |
-| Pipeline Run | `/project/:id/pipeline/:name/run/:id` | Live pipeline status and job list |
-| Job Logs | `…/run/:id/job/:id/logs` | Full-screen live-tailing job output |
+| Pipeline Run | `/project/:id/pipeline/:name/run/:id` | Live pipeline status and job list (SSE) |
+| Job Logs | `.../run/:id/job/:id/logs` | Full-screen live-tailing job output (SSE) |
 | History | `/project/:id/pipeline/:name/history` | Past executions for a pipeline |
 | Profile | `/profile` | Your logged-in user info and groups |
 | Admin | `/admin` | View the loaded config (admins only) |

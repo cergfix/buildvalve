@@ -24,3 +24,10 @@ export const logger = winston.createLogger({
     new winston.transports.File({ filename: path.join(logDir, "audit.log") }),
   ],
 });
+
+// Stream adapter for Morgan HTTP access logging
+export const morganStream = {
+  write: (message: string) => {
+    logger.info(message.trim(), { type: "access" });
+  },
+};

@@ -22,7 +22,7 @@ import type { SamlProviderConfig, OAuthProviderConfig, LocalProviderConfig, Mock
 import { OAuthProvider } from "./services/auth/oauth-provider.js";
 import { LocalProvider } from "./services/auth/local-provider.js";
 import { MockProvider } from "./services/auth/mock-provider.js";
-import { logger } from "./utils/logger.js";
+import { logger, morganStream } from "./utils/logger.js";
 
 const configPath = process.env.CONFIG_PATH;
 const config = loadConfig(configPath);
@@ -98,7 +98,7 @@ app.use(
       process.env.NODE_ENV === "development" ? false : undefined,
   })
 );
-app.use(morgan("short"));
+app.use(morgan("short", { stream: morganStream }));
 app.use(
   cors({
     origin: process.env.CORS_ORIGIN ?? true,
