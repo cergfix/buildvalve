@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { PipelineRunDetail } from "../api/types";
+import { API_BASE } from "../api/client";
 
 interface UseSSEOptions<T> {
   /** SSE endpoint URL */
@@ -72,7 +73,7 @@ export function usePipelineStream(projectId: string, pipelineId: string) {
   const { data, isConnected, isDone } = useSSE(
     null as PipelineRunDetail | null,
     {
-      url: `/api/pipelines/${encodeURIComponent(projectId)}/${encodeURIComponent(pipelineId)}/stream`,
+      url: `${API_BASE}/api/pipelines/${encodeURIComponent(projectId)}/${encodeURIComponent(pipelineId)}/stream`,
       event: "status",
       onMessage: (msg) => msg as PipelineRunDetail,
     }
@@ -91,7 +92,7 @@ export function useLogStream(projectId: string, jobId: string, pipelineId?: stri
   const { isConnected, isDone } = useSSE(
     "",
     {
-      url: `/api/pipelines/${encodeURIComponent(projectId)}/jobs/${encodeURIComponent(jobId)}/trace/stream${params}`,
+      url: `${API_BASE}/api/pipelines/${encodeURIComponent(projectId)}/jobs/${encodeURIComponent(jobId)}/trace/stream${params}`,
       event: "logs",
       onMessage: (msg) => {
         const { logs: newLogs } = msg as { logs: string };

@@ -346,6 +346,37 @@ buildvalve/
 
 ---
 
+## Deployment Topologies
+
+BuildValve supports two deployment modes:
+
+### Combined (default)
+
+```mermaid
+graph LR
+    Browser -->|HTTP| Container["Combined Container<br/>:3000"]
+    Container -->|static files| SPA["Client SPA"]
+    Container -->|/api/*| API["Express API"]
+    API --> CI["CI Providers"]
+```
+
+Server and client in one container. Express serves the built SPA as static files and handles all `/api/*` routes. Simplest to deploy and operate.
+
+### Split (API + CDN)
+
+```mermaid
+graph LR
+    Browser -->|HTTPS| CDN["CDN / nginx<br/>(Client SPA)"]
+    Browser -->|HTTPS| API["API Server<br/>(Express)"]
+    API --> CI["CI Providers"]
+```
+
+Client is built with `VITE_API_URL` pointing to the API server's domain. The client SPA can be hosted on any static hosting (CDN, S3, nginx). The API server runs separately with `CORS_ORIGIN` set to the client's domain.
+
+Three Docker images are published per release: `buildvalve` (combined), `buildvalve-server` (API only), `buildvalve-client` (nginx SPA).
+
+---
+
 ## Key Design Decisions
 
 ### Stateless Backend

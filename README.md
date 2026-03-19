@@ -166,6 +166,57 @@ Then create a derived image with your config (see [Quick Start with Docker](#qui
 
 ---
 
+## Deployment Options
+
+BuildValve publishes three Docker images on each release:
+
+| Image | Description | Use case |
+|-------|-------------|----------|
+| `ghcr.io/cergfix/buildvalve` | Combined server + client SPA | Default — simplest deployment |
+| `ghcr.io/cergfix/buildvalve-server` | API server only (no static files) | Separate API backend |
+| `ghcr.io/cergfix/buildvalve-client` | Client SPA on nginx | CDN / separate frontend hosting |
+
+### Combined (default)
+
+Server and client in one container. This is the simplest approach:
+
+```bash
+docker run -d -p 3000:3000 -v ./config.yml:/app/config/config.yml:ro ghcr.io/cergfix/buildvalve:latest
+```
+
+### Split deployment (API + CDN)
+
+For deploying the client on a CDN and the server as a separate API:
+
+**1. Build the client with `VITE_API_URL`:**
+
+```bash
+# Using the client Docker image
+docker build --build-arg VITE_API_URL=https://api.buildvalve.example.com -f Dockerfile.client -t my-buildvalve-client .
+
+# Or build from source
+VITE_API_URL=https://api.buildvalve.example.com npm run build --workspace=client
+```
+
+**2. Run the API server:**
+
+```bash
+docker run -d -p 3000:3000 \
+  -e CORS_ORIGIN=https://buildvalve.example.com \
+  -v ./config.yml:/app/config/config.yml:ro \
+  ghcr.io/cergfix/buildvalve-server:latest
+```
+
+**3. Serve the client** (nginx, S3, CloudFront, Vercel, etc.):
+
+```bash
+docker run -d -p 80:80 my-buildvalve-client
+```
+
+The `VITE_API_URL` env var is baked into the client at build time. Set `CORS_ORIGIN` on the server to allow cross-origin requests from the client domain.
+
+---
+
 ## Configuration
 
 All configuration lives in **`config/config.yml`**. This file is gitignored — never commit it, as it contains secrets.
