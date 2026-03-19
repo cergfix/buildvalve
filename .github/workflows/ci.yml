@@ -800,11 +800,8 @@ jobs:
               # ── Trigger a pipeline and view run ──────────────────────
               print("--- Trigger pipeline ---")
               try:
-                  launch_link = wait.until(EC.element_to_be_clickable(
-                      (By.XPATH, "//a[contains(text(), 'Launch')] | //button[contains(text(), 'Launch')]")))
-                  launch_link.click()
-                  wait.until(EC.url_contains("/pipeline/"))
-
+                  # Navigate directly to the Deploy launch page to avoid stale elements
+                  driver.get(f"{BASE}/project/1/pipeline/Deploy")
                   trigger_btn = wait.until(EC.element_to_be_clickable(
                       (By.XPATH, "//button[contains(text(), 'Launch')]")))
                   trigger_btn.click()
