@@ -135,6 +135,10 @@ jobs:
                 - name: Deploy
                   ref: main
                   variables: []
+                - name: Deploy Prod
+                  ref: main
+                  variables: []
+                  allowed_groups: [devops]
             - id: frontend
               name: Frontend App (GitHub)
               description: A GitHub Actions project
@@ -402,6 +406,106 @@ jobs:
 
           rm -f "$CJ"
 
+      - name: "API: per-pipeline permissions"
+        run: |
+          # Mock user (test@test.com) is in group [test] — NOT in [devops]
+          # So "Deploy Prod" (allowed_groups: [devops]) should be hidden
+          CJ=$(mktemp)
+          curl -s -c "$CJ" -L -o /dev/null http://localhost:3000/api/auth/mock/login
+
+          echo "--- Mock user should NOT see Deploy Prod (devops-only) ---"
+          PIPELINES=$(curl -sf -b "$CJ" http://localhost:3000/api/pipelines)
+          echo "$PIPELINES"
+          echo "$PIPELINES" | grep -q '"Deploy"'
+          echo "OK: Deploy (unrestricted) is visible"
+          if echo "$PIPELINES" | grep -q '"Deploy Prod"'; then
+            echo "FAIL: Deploy Prod should be hidden for mock user (not in devops group)"
+            exit 1
+          fi
+          echo "OK: Deploy Prod is hidden for non-devops user"
+
+          echo "--- Mock user cannot trigger Deploy Prod ---"
+          CODE=$(curl -s -b "$CJ" -o /dev/null -w '%{http_code}' -X POST http://localhost:3000/api/pipelines/trigger \
+            -H 'Content-Type: application/json' \
+            -d '{"projectId":"1","pipelineName":"Deploy Prod","variables":{}}')
+          [ "$CODE" = "403" ] || { echo "FAIL: expected 403, got $CODE"; exit 1; }
+          echo "OK: trigger Deploy Prod → 403 for non-devops user"
+
+          rm -f "$CJ"
+
+          # Alice (devops group) should see Deploy Prod
+          ALICE_CJ=$(mktemp)
+          curl -s -c "$ALICE_CJ" -w '\n%{http_code}' -X POST http://localhost:3000/api/auth/local/login \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"alice@company.com","password":"secret123"}' > /dev/null
+
+          echo "--- Alice (devops) should see Deploy Prod ---"
+          ALICE_PIPELINES=$(curl -sf -b "$ALICE_CJ" http://localhost:3000/api/pipelines)
+          echo "$ALICE_PIPELINES"
+          echo "$ALICE_PIPELINES" | grep -q '"Deploy Prod"'
+          echo "OK: Deploy Prod is visible for devops user"
+
+          echo "--- Alice can trigger Deploy Prod ---"
+          TRIGGER=$(curl -sf -b "$ALICE_CJ" -X POST http://localhost:3000/api/pipelines/trigger \
+            -H 'Content-Type: application/json' \
+            -d '{"projectId":"1","pipelineName":"Deploy Prod","variables":{}}')
+          echo "$TRIGGER"
+          echo "$TRIGGER" | grep -q '"id"'
+          echo "OK: Alice can trigger Deploy Prod"
+
+          rm -f "$ALICE_CJ"
+
+      - name: "API: SSE streaming endpoints"
+        run: |
+          CJ=$(mktemp)
+          curl -s -c "$CJ" -L -o /dev/null http://localhost:3000/api/auth/mock/login
+
+          echo "--- Trigger a pipeline first ---"
+          TRIGGER=$(curl -sf -b "$CJ" -X POST http://localhost:3000/api/pipelines/trigger \
+            -H 'Content-Type: application/json' \
+            -d '{"projectId":"1","pipelineName":"Deploy","variables":{}}')
+          PID=$(echo "$TRIGGER" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+          echo "Pipeline ID: $PID"
+
+          echo "--- SSE pipeline stream returns event-stream content type ---"
+          # Use timeout to read just the first chunk (SSE never closes while running)
+          SSE_HEADERS=$(curl -s -b "$CJ" -D - -o /tmp/sse_body.txt --max-time 5 \
+            "http://localhost:3000/api/pipelines/1/$PID/stream" 2>/dev/null || true)
+          echo "$SSE_HEADERS"
+          echo "$SSE_HEADERS" | grep -qi "text/event-stream"
+          echo "OK: SSE pipeline stream returns text/event-stream"
+
+          # Check body contains SSE events
+          SSE_BODY=$(cat /tmp/sse_body.txt)
+          echo "$SSE_BODY"
+          echo "$SSE_BODY" | grep -q "event: status"
+          echo "OK: SSE body contains status events"
+
+          echo "--- SSE pipeline stream returns 403 for unauthorized project ---"
+          CODE=$(curl -s -b "$CJ" -o /dev/null -w '%{http_code}' --max-time 3 \
+            "http://localhost:3000/api/pipelines/999/123/stream" 2>/dev/null || true)
+          [ "$CODE" = "403" ] || { echo "FAIL: expected 403, got $CODE"; exit 1; }
+          echo "OK: SSE pipeline stream → 403 for unauthorized project"
+
+          echo "--- Get job ID for log stream test ---"
+          DETAIL=$(curl -sf -b "$CJ" "http://localhost:3000/api/pipelines/1/$PID")
+          JOB_ID=$(echo "$DETAIL" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['jobs'][0]['id'])" 2>/dev/null || true)
+          if [ -n "$JOB_ID" ]; then
+            echo "--- SSE job trace stream returns event-stream content type ---"
+            LOG_HEADERS=$(curl -s -b "$CJ" -D - -o /tmp/sse_logs.txt --max-time 5 \
+              "http://localhost:3000/api/pipelines/1/jobs/$JOB_ID/trace/stream?pipelineId=$PID" 2>/dev/null || true)
+            echo "$LOG_HEADERS"
+            echo "$LOG_HEADERS" | grep -qi "text/event-stream"
+            echo "OK: SSE log stream returns text/event-stream"
+
+            LOG_BODY=$(cat /tmp/sse_logs.txt)
+            echo "$LOG_BODY"
+            echo "$LOG_BODY" | grep -q "event: logs"
+            echo "OK: SSE log body contains logs events"
+          fi
+
+          rm -f "$CJ"
+
       # ── UI smoke tests (Selenium) ───────────────────────────────────────
       - name: Set up Chrome and Selenium
         run: |
@@ -607,9 +711,25 @@ jobs:
               except Exception as e:
                   fail(f"Pipeline launch page: {e}")
 
+              # ── Per-pipeline permissions (alice is in devops) ──────
+              print("--- Per-pipeline permissions ---")
+              try:
+                  driver.get(BASE)
+                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Test Project')]")))
+                  # Alice (devops) should see both Deploy and Deploy Prod
+                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Deploy Prod')]")))
+                  print("OK: Alice (devops) can see Deploy Prod")
+              except Exception as e:
+                  fail(f"Per-pipeline permissions (alice devops): {e}")
+
               # ── Trigger a pipeline and view run ──────────────────────
               print("--- Trigger pipeline ---")
               try:
+                  launch_link = wait.until(EC.element_to_be_clickable(
+                      (By.XPATH, "//a[contains(text(), 'Launch')] | //button[contains(text(), 'Launch')]")))
+                  launch_link.click()
+                  wait.until(EC.url_contains("/pipeline/"))
+
                   trigger_btn = wait.until(EC.element_to_be_clickable(
                       (By.XPATH, "//button[contains(text(), 'Launch')]")))
                   trigger_btn.click()
@@ -621,6 +741,16 @@ jobs:
                   print("OK: Pipeline run page loaded with jobs")
               except Exception as e:
                   fail(f"Trigger pipeline: {e}")
+
+              # ── SSE live streaming indicator ─────────────────────────
+              print("--- SSE streaming indicator ---")
+              try:
+                  # The pipeline run page should show either "Live streaming via SSE" or "Connecting..."
+                  wait.until(EC.presence_of_element_located(
+                      (By.XPATH, "//*[contains(text(), 'Live streaming') or contains(text(), 'Connecting')]")))
+                  print("OK: SSE streaming indicator visible on pipeline run page")
+              except Exception as e:
+                  fail(f"SSE streaming indicator: {e}")
 
               # ── Profile page ────────────────────────────────────────
               print("--- Profile page ---")
@@ -665,6 +795,20 @@ jobs:
                   print("OK: Mock login successful, test@test.com shown on profile")
               except Exception as e:
                   fail(f"Mock login: {e}")
+
+              # ── Per-pipeline permissions (mock user NOT in devops) ──
+              print("--- Per-pipeline permissions (mock user) ---")
+              try:
+                  driver.get(BASE)
+                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Deploy')]")))
+                  # Mock user (test group, not devops) should NOT see Deploy Prod
+                  deploy_prod_elements = driver.find_elements(By.XPATH, "//*[text()='Deploy Prod']")
+                  if len(deploy_prod_elements) == 0:
+                      print("OK: Mock user (non-devops) cannot see Deploy Prod")
+                  else:
+                      fail("Mock user should not see Deploy Prod (devops-only pipeline)")
+              except Exception as e:
+                  fail(f"Per-pipeline permissions (mock user): {e}")
 
               # ── Error message display ───────────────────────────────
               print("--- Login page error messages ---")
