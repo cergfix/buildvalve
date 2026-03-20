@@ -4,7 +4,7 @@ import { Input } from "../components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { useQuery } from "@tanstack/react-query";
 import { pipelinesApi } from "../api/queries";
-import type { RecentProjectPipelines, RecentPipeline } from "../api/types";
+import type { RecentProjectPipelines, RecentPipeline, ResolvedPipeline } from "../api/types";
 import { useNavigate, Link } from "react-router-dom";
 import { Play, Loader2, CheckCircle, XCircle, History, Search } from "lucide-react";
 import { useState } from "react";
@@ -92,7 +92,7 @@ export function PipelinesPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {project.pipelines.map((pipeline: any) => {
+                    {project.pipelines.map((pipeline: ResolvedPipeline) => {
                       const projectRecent = recentData?.find((r: RecentProjectPipelines) => r.projectId === project.id);
                       const projectPipelines: RecentPipeline[] = projectRecent?.pipelines || [];
                       

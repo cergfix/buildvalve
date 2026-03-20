@@ -54,6 +54,21 @@ export interface PipelineHistoryEntry {
   provider?: CIProviderType;
 }
 
+/** Pipeline config as returned by the API, with resolved provider fields. */
+export interface ResolvedPipeline {
+  name: string;
+  ref: string;
+  workflow_id?: string;
+  variables: { key: string; value: string; locked: boolean; required?: boolean; description?: string; type?: string; options?: string[] }[];
+  provider?: string;
+  external_id?: string;
+  allowed_users?: string[];
+  allowed_groups?: string[];
+  resolvedProvider: string;
+  resolvedExternalId: string;
+  providerType?: CIProviderType;
+}
+
 /** Error shape returned by fetchApi */
 export interface ApiError {
   status?: number;
