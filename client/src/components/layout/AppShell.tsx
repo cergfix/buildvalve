@@ -35,7 +35,7 @@ export function AppShell() {
         {/* Collapse toggle button */}
         <button
           onClick={() => setCollapsed((c) => !c)}
-          className="absolute -right-3 top-6 z-20 flex h-6 w-6 items-center justify-center rounded-full border-[1.5px] border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-500 hover:text-primary hover:border-primary shadow-sm transition-all"
+          className="absolute -right-3 top-9 z-20 flex h-6 w-6 items-center justify-center rounded-full border-[1.5px] border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-500 hover:text-primary hover:border-primary shadow-sm transition-all"
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           {collapsed ? <ChevronRight size={13} /> : <ChevronLeft size={13} />}

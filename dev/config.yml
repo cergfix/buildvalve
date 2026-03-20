@@ -49,7 +49,7 @@ session:
 
 permissions:
   - users: [alice@company.com, bob@company.com, cergfix@gmail.com]
-    projects: ["42", "myorg/frontend", "gh/myorg/api"]
+    projects: ["42", "myorg/frontend", "gh/myorg/api", "mixed-project"]
 
 projects:
   - id: "42"
@@ -120,6 +120,27 @@ projects:
             value: staging
             locked: false
             description: "Target environment (staging/production)"
+
+  - id: "mixed-project"
+    name: "Mixed Infrastructure"
+    description: "Project with pipelines on different vendors"
+    provider: gitlab-corp
+    external_id: "42"
+    pipelines:
+      - name: "GitLab Backend (Default)"
+        ref: main
+        variables: []
+      - name: "GitHub Frontend (Override)"
+        provider: github-oss
+        external_id: "myorg/frontend"
+        ref: main
+        workflow_id: deploy.yml
+        variables: []
+      - name: "CircleCI API (Override)"
+        provider: circleci-main
+        external_id: "gh/myorg/api"
+        ref: main
+        variables: []
 
 external_links:
   - label: "Grafana"

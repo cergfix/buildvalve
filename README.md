@@ -6,6 +6,13 @@
 
 ![BuildValve Preview](preview.png)
 
+### Live Views
+
+| Launch Pipeline | Real-time Status | Live Job Logs |
+| :---: | :---: | :---: |
+| ![Launch Pipeline](launch_page.png) | ![Pipeline Run](pipeline_run.png) | ![Job Logs](job_logs.png) |
+
+
 BuildValve lets you give your team a simple dashboard of big "Launch" buttons for their CI/CD pipelines across **GitLab**, **GitHub Actions**, and **CircleCI** — without handing out direct access, exposing raw CI variables, or forcing everyone to learn each provider's UI.
 
 You configure which pipelines are available and who can trigger them. Your team logs in via your company's SSO and simply clicks **Launch**.

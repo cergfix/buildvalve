@@ -31,8 +31,14 @@ export function createAuthRouter(config: AppConfig, providers: AuthProvider[]): 
     const user = req.session.user!;
     const projects = getAllowedProjects(user, config).map((p) => ({
       ...p,
-      providerType: config.ci_providers.find((cp) => cp.name === p.provider)?.type,
-      pipelines: p.pipelines.filter((pl) => isPipelineAuthorized(user, pl)),
+      pipelines: p.pipelines
+        .filter((pl) => isPipelineAuthorized(user, pl))
+        .map((pl) => ({
+          ...pl,
+          resolvedProvider: pl.provider || p.provider,
+          resolvedExternalId: pl.external_id || p.external_id,
+          providerType: config.ci_providers.find((cp) => cp.name === (pl.provider || p.provider))?.type,
+        })),
     }));
     const isAdmin = !!(config.admins && config.admins.includes(user.email));
     const externalLinks = config.external_links || [];

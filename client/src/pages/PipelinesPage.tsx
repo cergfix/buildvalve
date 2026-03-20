@@ -72,7 +72,6 @@ export function PipelinesPage() {
               <div className="border-b-[1.5px] border-slate-200 dark:border-slate-700 pb-2 mb-4">
               <h3 className="text-xl font-bold flex items-center gap-2">
                 {project.name}
-                <ProviderBadge type={(project as unknown as { providerType?: string }).providerType} />
               </h3>
               {project.description && <p className="text-slate-500 mt-1">{project.description}</p>}
             </div>
@@ -84,7 +83,8 @@ export function PipelinesPage() {
                 <Table>
                   <TableHeader className="">
                     <TableRow>
-                      <TableHead className="w-[30%]">Pipeline Name</TableHead>
+                      <TableHead className="w-[20%]">Pipeline Name</TableHead>
+                      <TableHead className="w-[10%]">Provider</TableHead>
                       <TableHead className="w-[10%]">Ref</TableHead>
                       <TableHead className="w-[15%]">Last Pipeline</TableHead>
                       <TableHead className="w-[15%]">Currently Running</TableHead>
@@ -92,12 +92,17 @@ export function PipelinesPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {project.pipelines.map((pipeline) => {
+                    {project.pipelines.map((pipeline: any) => {
                       const projectRecent = recentData?.find((r: RecentProjectPipelines) => r.projectId === project.id);
                       const projectPipelines: RecentPipeline[] = projectRecent?.pipelines || [];
-                      const matchingPipelines = projectPipelines.filter((p: RecentPipeline) => p.ref === pipeline.ref);
+                      
+                      // Filter by ref AND provider if provided by backend
+                      const matchingPipelines = projectPipelines.filter((p: RecentPipeline) => 
+                        p.ref === pipeline.ref && 
+                        (!p.provider || !pipeline.providerType || p.provider === pipeline.providerType)
+                      );
 
-                      const runningPipeline = matchingPipelines.find((p: RecentPipeline) => p.status === "running" || p.status === "pending" || p.status === "created");
+                      const runningPipeline = matchingPipelines.find((p: RecentPipeline) => ["running", "pending", "created"].includes(p.status));
                       const lastPipeline = matchingPipelines.find((p: RecentPipeline) => !["running", "pending", "created"].includes(p.status));
 
                       const getStatusIcon = (status: string) => {
@@ -110,6 +115,9 @@ export function PipelinesPage() {
                       return (
                       <TableRow key={pipeline.name}>
                         <TableCell className="font-semibold">{pipeline.name}</TableCell>
+                        <TableCell>
+                          <ProviderBadge type={pipeline.providerType} />
+                        </TableCell>
                         <TableCell>
                           <code className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700 text-xs font-mono text-slate-600 dark:text-slate-300">{pipeline.ref}</code>
                         </TableCell>

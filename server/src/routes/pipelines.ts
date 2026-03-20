@@ -30,8 +30,15 @@ export function createPipelineRouter(config: AppConfig): Router {
         name: p.name,
         description: p.description,
         provider: p.provider,
-        providerType: config.ci_providers.find((cp) => cp.name === p.provider)?.type,
-        pipelines: p.pipelines.filter((pl) => isPipelineAuthorized(user, pl)),
+        pipelines: p.pipelines
+          .filter((pl) => isPipelineAuthorized(user, pl))
+          .map((pl) => ({
+            ...pl,
+            // Resolved provider/type for this specific pipeline
+            resolvedProvider: pl.provider || p.provider,
+            resolvedExternalId: pl.external_id || p.external_id,
+            providerType: config.ci_providers.find((cp) => cp.name === (pl.provider || p.provider))?.type,
+          })),
       }));
 
     res.json(projects);
@@ -73,9 +80,9 @@ export function createPipelineRouter(config: AppConfig): Router {
       return;
     }
 
-    const provider = getCIProvider(project.provider);
+    const provider = getCIProvider(pipelineConfig.provider || project.provider);
     if (!provider) {
-      res.status(500).json({ error: `CI provider "${project.provider}" not configured` });
+      res.status(500).json({ error: `CI provider "${pipelineConfig.provider || project.provider}" not configured` });
       return;
     }
 
@@ -89,7 +96,7 @@ export function createPipelineRouter(config: AppConfig): Router {
 
     try {
       const pipeline = await provider.triggerPipeline(
-        project.external_id,
+        pipelineConfig.external_id || project.external_id,
         pipelineConfig.ref,
         finalVars,
         pipelineConfig.workflow_id
@@ -130,15 +137,44 @@ export function createPipelineRouter(config: AppConfig): Router {
     try {
       const results = await Promise.all(
         allowedProjects.map(async (project) => {
-          const provider = getCIProvider(project.provider);
-          if (!provider) return { projectId: project.id, projectName: project.name, pipelines: [] };
+          // Collect all unique provider/externalId pairs for this project's pipelines
+          const providerPairs = new Map<string, { providerName: string; externalId: string }>();
 
-          let pipelines = recentPipelinesCache.get(project.id);
-          if (!pipelines) {
-            pipelines = await provider.listPipelines(project.external_id, { per_page: 10 });
-            recentPipelinesCache.set(project.id, pipelines);
+          // Add project-level default
+          providerPairs.set(`${project.provider}:${project.external_id}`, {
+            providerName: project.provider,
+            externalId: project.external_id,
+          });
+
+          // Add pipeline-level overrides
+          for (const pl of project.pipelines) {
+            const pName = pl.provider || project.provider;
+            const eId = pl.external_id || project.external_id;
+            providerPairs.set(`${pName}:${eId}`, { providerName: pName, externalId: eId });
           }
-          return { projectId: project.id, projectName: project.name, pipelines };
+
+          // Fetch from all providers in parallel
+          const pipelinesArrays = await Promise.all(
+            Array.from(providerPairs.values()).map(async ({ providerName, externalId }) => {
+              const provider = getCIProvider(providerName);
+              if (!provider) return [];
+
+              const cacheKey = `${providerName}:${externalId}`;
+              let cached = recentPipelinesCache.get(cacheKey);
+              if (!cached) {
+                cached = await provider.listPipelines(externalId, { per_page: 10 });
+                recentPipelinesCache.set(cacheKey, cached);
+              }
+              return cached;
+            })
+          );
+
+          // Flatten, deduplicate (if same ref/project on multiple providers? unlikely but possible), and sort
+          const allPipelines = pipelinesArrays.flat().sort((a, b) => {
+            return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+          });
+
+          return { projectId: project.id, projectName: project.name, pipelines: allPipelines.slice(0, 15) };
         })
       );
       res.json(results);

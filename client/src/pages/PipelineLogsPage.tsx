@@ -1,11 +1,22 @@
 import { useRef, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { pipelinesApi } from "../api/queries";
 import { useLogStream } from "../hooks/useSSE";
 import { ArrowLeft, Loader2, Terminal, Radio } from "lucide-react";
 
 export function PipelineLogsPage() {
   const { projectId, pipelineName, runId, jobId } = useParams();
   const navigate = useNavigate();
+
+  // Fetch pipeline data to get the real job name (more robust than query params)
+  const { data: pipelineData } = useQuery({
+    queryKey: ["pipelineRun", projectId, runId],
+    queryFn: () => pipelinesApi.getPipeline(projectId!, runId!),
+    staleTime: 30000,
+  });
+
+  const jobName = pipelineData?.jobs.find(j => String(j.id) === String(jobId))?.name;
 
   const { logs, isConnected, isDone } = useLogStream(projectId!, jobId!, runId);
 
@@ -30,7 +41,7 @@ export function PipelineLogsPage() {
         <div className="border-b-[1.5px] border-slate-200 pb-4">
           <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2">
             <Terminal size={24} className="text-primary" />
-            Job Logs: Job #{jobId}
+            Job Logs: {jobName ? `${jobName} (Job #${jobId})` : `Job #${jobId}`}
             {!isDone && (
               isConnected
                 ? <Radio size={14} className="text-green-500 ml-2" />

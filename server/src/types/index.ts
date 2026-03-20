@@ -49,6 +49,8 @@ export interface PipelineConfig {
   ref: string;
   workflow_id?: string; // GitHub Actions: workflow filename or ID
   variables: VariableConfig[];
+  provider?: string; // Optional: override project-level provider
+  external_id?: string; // Optional: override project-level external_id
   allowed_users?: string[];  // restrict this pipeline to specific users (within project permissions)
   allowed_groups?: string[]; // restrict this pipeline to specific groups
 }

@@ -1,4 +1,4 @@
-import type { CIProvider, CIPipeline, CIJob, CIProviderType } from "./types.js";
+import { CIProviderError, type CIProvider, type CIPipeline, type CIJob, type CIProviderType } from "./types.js";
 import { logger } from "../../utils/logger.js";
 
 // Shared in-memory state
@@ -90,7 +90,7 @@ export class MockCIProvider implements CIProvider {
 
   async getPipeline(projectId: string, pipelineId: string): Promise<CIPipeline> {
     const p = pipelinesDB.get(pipelineId);
-    if (!p) throw new Error("Mock pipeline not found");
+    if (!p) throw new CIProviderError(404, "Mock pipeline not found", this.name, `/pipelines/${pipelineId}`);
     return p;
   }
 
