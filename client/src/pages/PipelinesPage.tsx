@@ -92,7 +92,7 @@ export function PipelinesPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {project.pipelines.map((pipeline: ResolvedPipeline) => {
+                    {(project.pipelines as unknown as ResolvedPipeline[]).map((pipeline) => {
                       const projectRecent = recentData?.find((r: RecentProjectPipelines) => r.projectId === project.id);
                       const projectPipelines: RecentPipeline[] = projectRecent?.pipelines || [];
                       
