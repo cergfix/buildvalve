@@ -21,7 +21,7 @@ const ciProviderSchema = {
 
 const schema = {
   type: "object",
-  required: ["auth", "session", "projects", "permissions"],
+  required: ["ci_providers", "auth", "session", "projects", "permissions"],
   properties: {
     admins: { type: "array", items: { type: "string" } },
 
@@ -29,17 +29,6 @@ const schema = {
     ci_providers: {
       type: "array",
       items: ciProviderSchema,
-    },
-
-    // Legacy single-gitlab config (auto-migrated)
-    gitlab: {
-      type: "object",
-      required: ["url", "service_account_token"],
-      properties: {
-        url: { type: "string" },
-        service_account_token: { type: "string" },
-        mock: { type: "boolean" },
-      },
     },
 
     auth: {
@@ -101,7 +90,7 @@ const schema = {
       type: "array",
       items: {
         type: "object",
-        required: ["id", "name", "pipelines"],
+        required: ["id", "name", "provider", "pipelines"],
         properties: {
           id: { type: ["string", "number"] },
           name: { type: "string" },
@@ -189,10 +178,8 @@ export function loadConfig(configPath?: string): AppConfig {
     throw new Error(`Invalid config:\n${errors}`);
   }
 
-  // Migrate legacy gitlab config to ci_providers
-  migrateConfig(parsed);
+  normalizeConfig(parsed);
 
-  // Validate provider references
   const config = parsed as unknown as AppConfig;
   const providerNames = new Set(config.ci_providers.map((p) => p.name));
   for (const project of config.projects) {
@@ -207,38 +194,12 @@ export function loadConfig(configPath?: string): AppConfig {
   return config;
 }
 
-function migrateConfig(parsed: Record<string, unknown>): void {
-  // Ensure ci_providers exists
-  if (!parsed.ci_providers) {
-    parsed.ci_providers = [];
-  }
-
-  // Migrate legacy gitlab block to a ci_providers entry
-  const legacy = parsed.gitlab as { url: string; service_account_token: string; mock?: boolean } | undefined;
-  if (legacy) {
-    const providers = parsed.ci_providers as Array<Record<string, unknown>>;
-    // Only add if no provider named "default" exists already
-    if (!providers.some((p) => p.name === "default")) {
-      providers.push({
-        name: "default",
-        type: "gitlab",
-        url: legacy.url,
-        token: legacy.service_account_token,
-        mock: legacy.mock,
-      });
-    }
-  }
-
-  // Normalize projects: ensure string IDs, provider, and external_id
+function normalizeConfig(parsed: Record<string, unknown>): void {
+  // Normalize projects: ensure string IDs and external_id
   const projects = parsed.projects as Array<Record<string, unknown>>;
   for (const project of projects) {
     // Convert numeric id to string
     project.id = String(project.id);
-
-    // Default provider to "default" if not set
-    if (!project.provider) {
-      project.provider = "default";
-    }
 
     // Default external_id to id if not set
     if (!project.external_id) {

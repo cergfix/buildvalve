@@ -8,7 +8,6 @@ function makeConfig(admins?: string[]): AppConfig {
       { name: "default", type: "gitlab", url: "https://gitlab.example.com", token: "super-secret-token" },
       { name: "github-oss", type: "github-actions", github_token: "ghp-secret" },
     ],
-    gitlab: { url: "https://gitlab.example.com", service_account_token: "super-secret-token" },
     auth: {
       providers: [
         { type: "saml", enabled: true, label: "Okta", entry_point: "x", issuer: "x", callback_url: "x", cert: "CERT-DATA" } as any,
@@ -63,7 +62,6 @@ describe("admin config endpoint", () => {
 
     const returnedConfig = res.json.mock.calls[0][0];
     expect(returnedConfig.session.secret).toBe("REDACTED");
-    expect(returnedConfig.gitlab.service_account_token).toBe("REDACTED");
     expect(returnedConfig.auth.providers[0].cert).toBe("REDACTED");
     // CI provider secrets redacted
     expect(returnedConfig.ci_providers[0].token).toBe("REDACTED");
@@ -84,7 +82,6 @@ describe("admin config endpoint", () => {
     handler(req, res);
 
     expect(config.session.secret).toBe("my-session-secret");
-    expect(config.gitlab!.service_account_token).toBe("super-secret-token");
     expect(config.ci_providers[0].token).toBe("super-secret-token");
   });
 });

@@ -18,9 +18,6 @@ export function createAdminRouter(config: AppConfig): Router {
     // Redact sensitive backend information
     if ((safeConfig as any).session?.secret) (safeConfig as any).session.secret = "REDACTED";
 
-    // Redact legacy gitlab block if present
-    if ((safeConfig as any).gitlab?.service_account_token) (safeConfig as any).gitlab.service_account_token = "REDACTED";
-
     // Redact CI provider secrets
     if (Array.isArray((safeConfig as any).ci_providers)) {
       for (const provider of (safeConfig as any).ci_providers) {
