@@ -13,7 +13,26 @@ export interface ExternalLink {
   url: string;
 }
 
-// --- Config ---
+// --- CI Provider Config ---
+
+export type CIProviderType = "gitlab" | "github-actions" | "circleci";
+
+export interface CIProviderConfigEntry {
+  name: string;
+  type: CIProviderType;
+  mock?: boolean;
+  // GitLab
+  url?: string;
+  token?: string;
+  // GitHub Actions
+  github_token?: string;
+  github_api_url?: string;
+  // CircleCI
+  circleci_token?: string;
+  circleci_api_url?: string;
+}
+
+// --- Pipeline / Project Config ---
 
 export interface VariableConfig {
   key: string;
@@ -21,26 +40,39 @@ export interface VariableConfig {
   locked: boolean;
   required?: boolean;
   description?: string;
+  type?: "text" | "select" | "radio"; // default: "text"
+  options?: string[]; // choices for select/radio
 }
 
 export interface PipelineConfig {
   name: string;
   ref: string;
+  workflow_id?: string; // GitHub Actions: workflow filename or ID
   variables: VariableConfig[];
+  provider?: string; // Optional: override project-level provider
+  external_id?: string; // Optional: override project-level external_id
+  allowed_users?: string[];  // restrict this pipeline to specific users (within project permissions)
+  allowed_groups?: string[]; // restrict this pipeline to specific groups
 }
 
 export interface ProjectConfig {
-  id: number;
+  id: string;
   name: string;
   description?: string;
+  provider: string; // references ci_providers[].name
+  external_id: string; // provider-specific project identifier (e.g. "42", "owner/repo", "gh/org/repo")
   pipelines: PipelineConfig[];
 }
+
+// --- Permissions ---
 
 export interface PermissionRule {
   users?: string[];
   groups?: string[];
-  projects: number[];
+  projects: string[];
 }
+
+// --- Auth Provider Configs ---
 
 export interface SamlProviderConfig {
   type: "saml";
@@ -66,13 +98,13 @@ export interface OAuthProviderConfig {
   client_secret: string;
   callback_url?: string;
   scopes?: string;
-  base_url?: string; // GitLab self-hosted URL (defaults to https://gitlab.com)
+  base_url?: string;
 }
 
 export interface LocalUserConfig {
   email: string;
   password?: string;
-  password_hash?: string; // sha256 hex digest
+  password_hash?: string;
   groups?: string[];
 }
 
@@ -97,12 +129,10 @@ export interface MockProviderConfig {
 
 export type AuthProviderConfig = SamlProviderConfig | OAuthProviderConfig | LocalProviderConfig | MockProviderConfig;
 
+// --- App Config ---
+
 export interface AppConfig {
-  gitlab: {
-    url: string;
-    service_account_token: string;
-    mock?: boolean;
-  };
+  ci_providers: CIProviderConfigEntry[];
   auth: {
     providers: AuthProviderConfig[];
   };
@@ -116,6 +146,13 @@ export interface AppConfig {
   permissions: PermissionRule[];
   admins?: string[];
   external_links?: ExternalLink[];
+
+  /** @deprecated Use ci_providers instead. Kept for backward compatibility migration. */
+  gitlab?: {
+    url: string;
+    service_account_token: string;
+    mock?: boolean;
+  };
 }
 
 // --- Session augmentation ---
@@ -124,31 +161,4 @@ declare module "express-session" {
   interface SessionData {
     user: AuthUser;
   }
-}
-
-// --- GitLab API responses ---
-
-export interface GitLabPipeline {
-  id: number;
-  iid: number;
-  project_id: number;
-  status: string;
-  ref: string;
-  sha: string;
-  created_at: string;
-  updated_at: string;
-  web_url: string;
-  source: string;
-}
-
-export interface GitLabJob {
-  id: number;
-  name: string;
-  stage: string;
-  status: string;
-  created_at: string;
-  started_at: string | null;
-  finished_at: string | null;
-  duration: number | null;
-  web_url: string;
 }

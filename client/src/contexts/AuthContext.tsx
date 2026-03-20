@@ -1,14 +1,14 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { authApi } from "../api/queries";
-import type { DashboardData } from "../api/queries";
+import type { PipelinesData } from "../api/queries";
 
 interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
-  user: DashboardData["user"] | null;
-  projects: DashboardData["projects"] | null;
+  user: PipelinesData["user"] | null;
+  projects: PipelinesData["projects"] | null;
   isAdmin: boolean;
-  externalLinks: DashboardData["externalLinks"];
+  externalLinks: PipelinesData["externalLinks"];
   checkAuth: () => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -16,7 +16,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [data, setData] = useState<DashboardData | null>(null);
+  const [data, setData] = useState<PipelinesData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const checkAuth = async () => {

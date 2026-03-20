@@ -12,13 +12,13 @@ function sha256(input: string): string {
 
 function makeAppConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
-    gitlab: { url: "https://gitlab.example.com", service_account_token: "tok" },
+    ci_providers: [{ name: "default", type: "gitlab", url: "https://gitlab.example.com", token: "tok" }],
     auth: { providers: [] },
     session: { secret: "testsecret", max_age: 3600 },
     projects: [],
     permissions: [
-      { users: ["alice@company.com", "bob@company.com"], projects: [1] },
-      { groups: ["devops"], projects: [2] },
+      { users: ["alice@company.com", "bob@company.com"], projects: ["1"] },
+      { groups: ["devops"], projects: ["2"] },
     ],
     ...overrides,
   };
@@ -177,7 +177,7 @@ describe("LocalProvider", () => {
 
     it("grants access via group-based permission", async () => {
       const appConfig = makeAppConfig({
-        permissions: [{ groups: ["devops"], projects: [1] }],
+        permissions: [{ groups: ["devops"], projects: ["1"] }],
       });
       const { handler } = await importAndSetup(undefined, appConfig);
       const { req, res } = mockReqRes({ email: "alice@company.com", password: "secret123" });

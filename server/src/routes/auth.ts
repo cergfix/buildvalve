@@ -1,9 +1,10 @@
 import { Router } from "express";
 import type { AppConfig } from "../types/index.js";
 import type { AuthProvider } from "../services/auth/types.js";
-import { getAllowedProjects } from "../services/permissions.js";
+import { getAllowedProjects, isPipelineAuthorized } from "../services/permissions.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { logger } from "../utils/logger.js";
+import { access } from "../utils/access.js";
 
 export function createAuthRouter(config: AppConfig, providers: AuthProvider[]): Router {
   const router = Router();
@@ -28,7 +29,17 @@ export function createAuthRouter(config: AppConfig, providers: AuthProvider[]): 
   // Current user info + allowed projects
   router.get("/api/auth/me", requireAuth, (req, res) => {
     const user = req.session.user!;
-    const projects = getAllowedProjects(user, config);
+    const projects = getAllowedProjects(user, config).map((p) => ({
+      ...p,
+      pipelines: p.pipelines
+        .filter((pl) => isPipelineAuthorized(user, pl))
+        .map((pl) => ({
+          ...pl,
+          resolvedProvider: pl.provider || p.provider,
+          resolvedExternalId: pl.external_id || p.external_id,
+          providerType: config.ci_providers.find((cp) => cp.name === (pl.provider || p.provider))?.type,
+        })),
+    }));
     const isAdmin = !!(config.admins && config.admins.includes(user.email));
     const externalLinks = config.external_links || [];
     res.json({ user, projects, isAdmin, externalLinks });
@@ -36,6 +47,9 @@ export function createAuthRouter(config: AppConfig, providers: AuthProvider[]): 
 
   // Logout
   router.post("/api/auth/logout", (req, res) => {
+    if (req.session.user) {
+      access(req.session.user, "logout");
+    }
     req.session.destroy((err) => {
       if (err) {
         logger.error("Session destroy error", { error: err });

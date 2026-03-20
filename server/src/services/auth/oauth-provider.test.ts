@@ -7,11 +7,11 @@ vi.mock("../../utils/logger.js", () => ({
 
 function makeAppConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
-    gitlab: { url: "https://gitlab.example.com", service_account_token: "tok" },
+    ci_providers: [{ name: "default", type: "gitlab", url: "https://gitlab.example.com", token: "tok" }],
     auth: { providers: [] },
     session: { secret: "testsecret", max_age: 3600 },
     projects: [],
-    permissions: [{ users: ["user@github.com"], projects: [1] }],
+    permissions: [{ users: ["user@github.com"], projects: ["1"] }],
     ...overrides,
   };
 }
@@ -232,7 +232,7 @@ describe("OAuthProvider", () => {
       );
 
       const appConfig = makeAppConfig({
-        permissions: [{ users: ["private@github.com"], projects: [1] }],
+        permissions: [{ users: ["private@github.com"], projects: ["1"] }],
       });
       const { callbackHandler } = await setupProvider("github", {}, appConfig);
       const { req, res } = mockReqRes({ code: "code" });
@@ -251,7 +251,7 @@ describe("OAuthProvider", () => {
       );
 
       const appConfig = makeAppConfig({
-        permissions: [{ users: ["user@gmail.com"], projects: [1] }],
+        permissions: [{ users: ["user@gmail.com"], projects: ["1"] }],
       });
       const { callbackHandler } = await setupProvider("google", {}, appConfig);
       const { req, res } = mockReqRes({ code: "google-code" });
@@ -274,7 +274,7 @@ describe("OAuthProvider", () => {
       );
 
       const appConfig = makeAppConfig({
-        permissions: [{ users: ["user@gitlab.com"], projects: [1] }],
+        permissions: [{ users: ["user@gitlab.com"], projects: ["1"] }],
       });
       const { callbackHandler } = await setupProvider("gitlab", {}, appConfig);
       const { req, res } = mockReqRes({ code: "gl-code" });
@@ -388,7 +388,7 @@ describe("OAuthProvider", () => {
       );
 
       const appConfig = makeAppConfig({
-        permissions: [{ users: ["user@gmail.com"], projects: [1] }],
+        permissions: [{ users: ["user@gmail.com"], projects: ["1"] }],
       });
       const { callbackHandler } = await setupProvider("google", {}, appConfig);
       const { req, res } = mockReqRes({ code: "code" });

@@ -1,32 +1,35 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { pipelinesApi } from "../api/queries";
-import type { GitLabJobDetail } from "../api/types";
+import { usePipelineStream } from "../hooks/useSSE";
+import type { CIJobDetail } from "../api/types";
 
 import { Badge } from "../components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
-import { ArrowLeft, ExternalLink, Loader2, CheckCircle, XCircle, Terminal } from "lucide-react";
+import { ArrowLeft, ExternalLink, Loader2, CheckCircle, XCircle, Terminal, Radio } from "lucide-react";
 
 export function PipelineRunPage() {
   const { projectId, pipelineName, runId } = useParams();
   const navigate = useNavigate();
 
-  const { data, isLoading, error } = useQuery({
+  // Initial fetch via REST
+  const { data: initialData, isLoading, error } = useQuery({
     queryKey: ["pipelineRun", projectId, runId],
-    queryFn: () => pipelinesApi.getPipeline(Number(projectId), Number(runId)),
-    refetchInterval: (query) => {
-      // stop polling if failed or success
-      const status = query.state.data?.pipeline?.status;
-      if (status === "success" || status === "failed" || status === "canceled") return false;
-      return 3000;
-    }
+    queryFn: () => pipelinesApi.getPipeline(projectId!, runId!),
+    staleTime: Infinity, // SSE will handle updates
   });
+
+  // SSE for live updates
+  const { data: streamData, isConnected } = usePipelineStream(projectId!, runId!);
+
+  // Use stream data when available, fall back to initial fetch
+  const data = streamData ?? initialData;
 
   const getStatusIcon = (status: string) => {
     switch(status) {
       case "success": return <CheckCircle className="text-green-500" size={16} />;
       case "failed": return <XCircle className="text-red-500" size={16} />;
-      case "running": 
+      case "running":
       case "pending": return <Loader2 className="text-blue-500 animate-spin" size={16} />;
       default: return null;
     }
@@ -41,18 +44,19 @@ export function PipelineRunPage() {
     }
   };
 
-  if (isLoading) return <div className="p-8"><Loader2 className="animate-spin" /></div>;
-  if (error || !data) return <div className="p-8 text-red-500">Error loading pipeline run</div>;
+  if (isLoading && !data) return <div className="p-8"><Loader2 className="animate-spin" /></div>;
+  if (error && !data) return <div className="p-8 text-red-500">Error loading pipeline run</div>;
+  if (!data) return null;
 
   const { pipeline, jobs } = data;
 
   return (
     <div className="w-full space-y-6">
-      <button 
+      <button
         onClick={() => navigate("/")}
         className="flex items-center text-sm font-medium text-slate-500 hover:text-slate-900 dark:hover:text-slate-200 transition-colors"
       >
-        <ArrowLeft size={16} className="mr-1" /> Back to Dashboard
+        <ArrowLeft size={16} className="mr-1" /> Back to Pipelines
       </button>
 
       <div className="flex justify-between items-start">
@@ -88,7 +92,7 @@ export function PipelineRunPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {jobs.map((job: GitLabJobDetail) => (
+                {jobs.map((job: CIJobDetail) => (
                   <TableRow key={job.id}>
                     <TableCell className="font-medium text-slate-600 dark:text-slate-400 uppercase text-xs tracking-wider">{job.stage}</TableCell>
                     <TableCell className="font-semibold">{job.name}</TableCell>
@@ -98,13 +102,13 @@ export function PipelineRunPage() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-slate-500 text-sm">
-                      {job.started_at && job.finished_at 
+                      {job.started_at && job.finished_at
                         ? `${Math.round((new Date(job.finished_at).getTime() - new Date(job.started_at).getTime()) / 1000)}s`
                         : (job.started_at ? "Running..." : "-")}
                     </TableCell>
                     <TableCell className="text-right">
-                      <button 
-                        onClick={() => navigate(`/project/${projectId}/pipeline/${encodeURIComponent(pipelineName!)}/run/${runId}/job/${job.id}/logs`)}
+                      <button
+                        onClick={() => navigate(`/project/${encodeURIComponent(projectId!)}/pipeline/${encodeURIComponent(pipelineName!)}/run/${runId}/job/${job.id}/logs`)}
                         className="text-primary text-sm font-semibold hover:underline flex items-center justify-end gap-1 w-full"
                       >
                         <Terminal size={14} /> View Logs
@@ -117,11 +121,20 @@ export function PipelineRunPage() {
           )}
         </div>
       </div>
-      
+
       {pipeline.status === "running" && (
         <div className="flex items-center gap-2 text-slate-500 text-sm italic w-full justify-center">
-          <Loader2 size={14} className="animate-spin" />
-          Live updating via GitLab API...
+          {isConnected ? (
+            <>
+              <Radio size={14} className="text-green-500" />
+              Live streaming via SSE
+            </>
+          ) : (
+            <>
+              <Loader2 size={14} className="animate-spin" />
+              Connecting...
+            </>
+          )}
         </div>
       )}
     </div>

@@ -10,8 +10,21 @@ permissions:
 
 jobs:
   docker:
-    name: Build & push Docker image
+    name: Build & push Docker images
     runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        include:
+          - image: buildvalve
+            dockerfile: Dockerfile
+            suffix: ""
+          - image: buildvalve-server
+            dockerfile: Dockerfile.server
+            suffix: "-server"
+          - image: buildvalve-client
+            dockerfile: Dockerfile.client
+            suffix: "-client"
 
     steps:
       - uses: actions/checkout@v5
@@ -20,7 +33,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ghcr.io/${{ github.repository }}
+          images: ghcr.io/${{ github.repository }}${{ matrix.suffix }}
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -41,6 +54,7 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
+          file: ${{ matrix.dockerfile }}
           push: true
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}

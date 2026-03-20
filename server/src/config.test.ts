@@ -37,17 +37,87 @@ permissions:
       - 1
 `;
 
+const multiProviderYaml = `
+ci_providers:
+  - name: gitlab-corp
+    type: gitlab
+    url: https://gitlab.example.com
+    token: tok123
+  - name: github-oss
+    type: github-actions
+    github_token: ghp-test
+auth:
+  providers:
+    - type: mock
+      enabled: true
+      label: Mock
+      mock_user:
+        email: test@test.com
+session:
+  secret: longenoughsecret
+  max_age: 3600
+projects:
+  - id: "42"
+    name: GitLab Project
+    provider: gitlab-corp
+    external_id: "42"
+    pipelines:
+      - name: deploy
+        ref: main
+        variables: []
+  - id: my-frontend
+    name: GitHub Project
+    provider: github-oss
+    external_id: myorg/frontend
+    pipelines:
+      - name: build
+        ref: main
+        workflow_id: ci.yml
+        variables: []
+permissions:
+  - users:
+      - test@test.com
+    projects:
+      - "42"
+      - my-frontend
+`;
+
 describe("loadConfig", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("parses valid YAML config", () => {
+  it("parses valid YAML config with legacy gitlab block and auto-migrates", () => {
     vi.mocked(readFileSync).mockReturnValue(validYaml);
     const config = loadConfig("/fake/path.yml");
-    expect(config.gitlab.url).toBe("https://gitlab.example.com");
-    expect(config.projects).toHaveLength(1);
-    expect(config.permissions).toHaveLength(1);
+    // Legacy gitlab block is preserved
+    expect(config.gitlab?.url).toBe("https://gitlab.example.com");
+    // Auto-migrated ci_providers
+    expect(config.ci_providers).toHaveLength(1);
+    expect(config.ci_providers[0].name).toBe("default");
+    expect(config.ci_providers[0].type).toBe("gitlab");
+    // Projects auto-migrated to string IDs
+    expect(config.projects[0].id).toBe("1");
+    expect(config.projects[0].provider).toBe("default");
+    expect(config.projects[0].external_id).toBe("1");
+    // Permissions auto-migrated to string IDs
+    expect(config.permissions[0].projects[0]).toBe("1");
+  });
+
+  it("parses multi-provider config", () => {
+    vi.mocked(readFileSync).mockReturnValue(multiProviderYaml);
+    const config = loadConfig("/fake/path.yml");
+    expect(config.ci_providers).toHaveLength(2);
+    expect(config.projects).toHaveLength(2);
+    expect(config.projects[0].provider).toBe("gitlab-corp");
+    expect(config.projects[1].provider).toBe("github-oss");
+    expect(config.projects[1].pipelines[0].workflow_id).toBe("ci.yml");
+  });
+
+  it("throws when project references unknown provider", () => {
+    const yaml = multiProviderYaml.replace("provider: github-oss", "provider: nonexistent");
+    vi.mocked(readFileSync).mockReturnValue(yaml);
+    expect(() => loadConfig("/bad.yml")).toThrow('unknown CI provider "nonexistent"');
   });
 
   it("throws on missing file", () => {
@@ -58,7 +128,7 @@ describe("loadConfig", () => {
   });
 
   it("throws on invalid schema - missing required fields", () => {
-    vi.mocked(readFileSync).mockReturnValue("gitlab:\n  url: test\n");
+    vi.mocked(readFileSync).mockReturnValue("session:\n  secret: test\n");
     expect(() => loadConfig("/bad.yml")).toThrow("Invalid config");
   });
 
@@ -80,7 +150,7 @@ describe("loadConfig", () => {
     expect(() => loadConfig("/bad.yml")).toThrow("Invalid config");
   });
 
-  it("accepts all valid provider types", () => {
+  it("accepts all valid auth provider types", () => {
     for (const type of ["saml", "github", "google", "gitlab", "local", "mock"]) {
       const yaml = validYaml.replace("type: mock", `type: ${type}`);
       vi.mocked(readFileSync).mockReturnValue(yaml);

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Navigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { authApi, type ProviderInfo } from "../api/queries";
-import { fetchApi } from "../api/client";
+import { fetchApi, API_BASE } from "../api/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -156,7 +156,7 @@ export function LoginPage() {
                       key={p.type}
                       className="w-full shadow-blocky flex items-center justify-center gap-2 text-md"
                       size="lg"
-                      onClick={() => (window.location.href = p.loginUrl)}
+                      onClick={() => (window.location.href = `${API_BASE}${p.loginUrl}`)}
                     >
                       <LogIn size={20} />
                       {p.buttonLabel}

@@ -12,12 +12,12 @@ export function PipelineHistoryPage() {
   const navigate = useNavigate();
   const { projects } = useAuth();
 
-  const project = projects?.find((p) => p.id === Number(projectId));
+  const project = projects?.find((p) => p.id === projectId);
   const pipelineConfig = project?.pipelines.find((p) => p.name === pipelineName);
 
   const { data: history, isLoading, error } = useQuery({
     queryKey: ["pipelineHistory", projectId, pipelineConfig?.ref],
-    queryFn: () => pipelinesApi.getHistory(Number(projectId), pipelineConfig!.ref),
+    queryFn: () => pipelinesApi.getHistory(projectId!, pipelineConfig!.ref),
     enabled: !!pipelineConfig,
     refetchInterval: 5000,
   });
@@ -26,7 +26,7 @@ export function PipelineHistoryPage() {
     switch(status) {
       case "success": return <CheckCircle className="text-green-500" size={16} />;
       case "failed": return <XCircle className="text-red-500" size={16} />;
-      case "running": 
+      case "running":
       case "pending": return <Loader2 className="text-blue-500 animate-spin" size={16} />;
       default: return null;
     }
@@ -47,11 +47,11 @@ export function PipelineHistoryPage() {
 
   return (
     <div className="w-full space-y-6">
-      <button 
+      <button
         onClick={() => navigate("/")}
         className="flex items-center text-sm font-medium text-slate-500 hover:text-slate-900 dark:hover:text-slate-200 transition-colors"
       >
-        <ArrowLeft size={16} className="mr-1" /> Back to Dashboard
+        <ArrowLeft size={16} className="mr-1" /> Back to Pipelines
       </button>
 
       <div className="space-y-4 pt-2">
@@ -96,7 +96,7 @@ export function PipelineHistoryPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         <button
-                          onClick={() => navigate(`/project/${project.id}/pipeline/${encodeURIComponent(pipelineConfig.name)}/run/${pipeline.id}`)}
+                          onClick={() => navigate(`/project/${encodeURIComponent(project.id)}/pipeline/${encodeURIComponent(pipelineConfig.name)}/run/${pipeline.id}`)}
                           className="text-primary text-sm font-semibold hover:underline"
                         >
                           View

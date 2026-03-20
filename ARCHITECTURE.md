@@ -2,56 +2,106 @@
 
 ## Overview
 
-BuildValve is a stateless, config-driven GitLab pipeline launcher. It acts as a controlled proxy between end users and GitLab's CI/CD pipelines. The application has no persistent database; all state lives in either the YAML config file (pipeline definitions) or in GitLab itself (pipeline execution state).
+BuildValve is a stateless, config-driven CI/CD pipeline launcher. It acts as a controlled proxy between end users and multiple CI/CD providers (GitLab, GitHub Actions, CircleCI). The application has no persistent database; all state lives in the YAML config file (pipeline definitions) or in the CI providers themselves (pipeline execution state).
 
 ---
 
 ## System Diagram
 
-```
-+-------------------+       +----------------------+       +-------------------+
-|                   |       |                      |       |                   |
-|   Browser (SPA)   | <---> |  Backend             | <---> |  GitLab Instance  |
-|   React + Vite    |       |  Node.js + Express   |       |  (self-hosted)    |
-|                   |       |  SAML SP             |       |                   |
-+-------------------+       +----------+-----------+       +-------------------+
-        |                              |
-        |  httpOnly session cookie     |  Service account token (glpat-*)
-        |                              |
-        |                   +----------+-----------+
-        |                   |                      |
-        |                   |  SAML IdP            |
-        |                   |  (Okta/Azure/ADFS/   |
-        |                   |   Keycloak)          |
-        |                   +----------------------+
+```mermaid
+graph LR
+    Browser["Browser (SPA)<br/>React + Vite"] <-->|httpOnly session cookie| Backend["Backend<br/>Node.js + Express"]
+    Backend <-->|Service account token| GitLab["GitLab"]
+    Backend <-->|PAT / App token| GitHub["GitHub Actions"]
+    Backend <-->|API token| CircleCI["CircleCI"]
+    Backend <-->|SAML / OAuth| IdP["Identity Provider<br/>(Okta / Azure AD /<br/>GitHub / Google)"]
+
+    style Browser fill:#1e293b,stroke:#3b82f6,color:#e2e8f0
+    style Backend fill:#1e293b,stroke:#3b82f6,color:#e2e8f0
+    style GitLab fill:#1e293b,stroke:#f97316,color:#e2e8f0
+    style GitHub fill:#1e293b,stroke:#64748b,color:#e2e8f0
+    style CircleCI fill:#1e293b,stroke:#22c55e,color:#e2e8f0
+    style IdP fill:#1e293b,stroke:#a855f7,color:#e2e8f0
 ```
 
-- **Frontend (SPA)**: Renders the launcher UI from server-provided config. Never talks to GitLab directly.
-- **Backend**: Validates identity (SAML), enforces authorization (config), and relays pipeline commands to GitLab using a service account.
-- **GitLab**: Only touched by the service account token. End users do not need GitLab accounts.
+- **Frontend (SPA)**: Renders the launcher UI from server-provided config. Never talks to CI providers directly.
+- **Backend**: Validates identity (SAML/OAuth), enforces authorization (config + per-pipeline permissions), and relays pipeline commands to CI providers using service account tokens.
+- **CI Providers**: Only touched by service account tokens. End users do not need accounts on any CI platform.
 
 ---
 
-## Auth Architecture
+## CI Provider Architecture
 
-### Flow (SAML 2.0)
+```mermaid
+classDiagram
+    class CIProvider {
+        <<interface>>
+        +type: CIProviderType
+        +name: string
+        +triggerPipeline(projectId, ref, variables, workflowId?)
+        +listPipelines(projectId, options?)
+        +getPipeline(projectId, pipelineId)
+        +getPipelineJobs(projectId, pipelineId)
+        +getJobTrace(projectId, jobId)
+    }
 
-1. User visits app with no session → redirected to `/api/auth/login`
-2. Backend generates SAML AuthnRequest → redirects to IdP SSO URL
-3. User authenticates at IdP (password, MFA, etc.)
-4. IdP POSTs SAML Response to `/api/auth/saml/callback` (ACS URL)
-5. Backend validates assertion (signature, expiry, audience)
-6. Extracts email + groups from attributes
-7. Checks permissions against `config.yml`
-8. Creates session with httpOnly cookie → redirects to SPA
-9. All subsequent API calls use session cookie; GitLab calls use service account token
+    class GitLabProvider {
+        -baseUrl: string
+        -token: string
+    }
+
+    class GitHubActionsProvider {
+        -token: string
+        -apiUrl: string
+    }
+
+    class CircleCIProvider {
+        -token: string
+        -apiUrl: string
+    }
+
+    class MockCIProvider {
+        +type: CIProviderType
+    }
+
+    CIProvider <|.. GitLabProvider
+    CIProvider <|.. GitHubActionsProvider
+    CIProvider <|.. CircleCIProvider
+    CIProvider <|.. MockCIProvider
+```
+
+All providers return normalized `CIPipeline` and `CIJob` types. Status values are normalized across providers to: `running`, `success`, `failed`, `pending`, `canceled`.
+
+---
+
+## Auth Flow
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant S as BuildValve
+    participant I as Identity Provider
+
+    U->>S: GET / (no session)
+    S-->>U: Redirect to /login
+    U->>S: Click "Sign in with SSO"
+    S->>I: SAML AuthnRequest / OAuth redirect
+    I-->>U: Login form (password, MFA)
+    U->>I: Authenticate
+    I->>S: SAML Response / OAuth callback
+    S->>S: Validate assertion, check permissions
+    S-->>U: Set httpOnly session cookie, redirect to /
+    U->>S: GET /api/pipelines (with cookie)
+    S->>S: Filter projects + pipelines by permissions
+    S-->>U: Allowed pipelines only
+```
 
 ### AuthProvider Interface
 
 ```typescript
 interface AuthUser {
   email: string           // canonical identity across all providers
-  provider: string        // "saml" | (future: "github" | "gitlab")
+  provider: string        // "saml" | "github" | "google" | "gitlab" | "local" | "mock"
   groups?: string[]
 }
 
@@ -64,36 +114,133 @@ interface AuthProvider {
 
 ### Email as Canonical Identity
 
-Permissions are matched by **email address**, not username. This ensures provider-agnostic authorization — a user logging in via SAML or (future) GitHub OAuth resolves to the same permissions if the email matches.
+Permissions are matched by **email address**, not username. This ensures provider-agnostic authorization — a user logging in via SAML, GitHub OAuth, or local accounts resolves to the same permissions if the email matches.
 
 ---
 
 ## Permission Model
 
-```
-auth           →  who you are  (SAML assertion)
-permissions    →  what you can do  (config.yml)
-execution      →  service account makes actual GitLab API calls
+```mermaid
+flowchart TD
+    A[User authenticates] --> B{Email/groups in permissions?}
+    B -->|No| C[403 Access Denied]
+    B -->|Yes| D[Get allowed project IDs]
+    D --> E[For each project, filter pipelines]
+    E --> F{Pipeline has allowed_users/allowed_groups?}
+    F -->|No restrictions| G[Pipeline visible]
+    F -->|Has restrictions| H{User matches?}
+    H -->|Yes| G
+    H -->|No| I[Pipeline hidden]
 ```
 
-If a user is not in `permissions`, they get a 403 after login. Backend rejects pipeline triggers for projects outside the user's allowed list before any GitLab call is made.
+Two layers of authorization:
+1. **Project-level**: `permissions[]` in config maps users/groups to project IDs
+2. **Pipeline-level**: Optional `allowed_users`/`allowed_groups` on individual pipelines restrict access within a project
 
 ---
 
-## File Structure (Actual)
+## Real-Time Updates (SSE)
+
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant S as BuildValve
+    participant CI as CI Provider
+
+    B->>S: GET /api/pipelines/:id/:pid/stream
+    S-->>B: HTTP 200, Content-Type: text/event-stream
+    loop Every 3 seconds
+        S->>CI: getPipeline + getPipelineJobs
+        CI-->>S: Status + jobs
+        S-->>B: event: status (JSON)
+    end
+    Note over S,B: Pipeline reaches terminal state
+    S-->>B: event: done
+    S->>S: Close connection
+```
+
+The frontend uses `EventSource` (SSE) instead of polling for:
+- **Pipeline status + jobs** — `GET /api/pipelines/:projectId/:pipelineId/stream`
+- **Job log streaming** — `GET /api/pipelines/:projectId/jobs/:jobId/trace/stream`
+
+SSE was chosen over WebSocket because the data flow is one-way (server to client), it works through corporate proxies, requires no extra dependencies, and browsers auto-reconnect on disconnect.
+
+---
+
+## Logging
+
+All logs go to **stdout only** as structured JSON — no file transports. This is designed for container environments where log collection is handled by the orchestrator (Docker, Kubernetes, ECS, etc.).
+
+### Log types
+
+Every log line is a JSON object with a `timestamp` field. There are three categories, distinguished by the `type` or `level` field:
+
+**1. Access logs** (`type: "access"`) — user actions tracked by the `access()` helper:
+
+```json
+{
+  "type": "access",
+  "event": "pipeline_triggered",
+  "user_email": "alice@company.com",
+  "user_provider": "saml",
+  "project_id": "42",
+  "provider": "gitlab",
+  "pipeline_name": "Deploy to Production",
+  "ci_pipeline_id": "12345",
+  "level": "info",
+  "timestamp": "2026-03-19T10:30:00.000Z"
+}
+```
+
+Access events: `login`, `login_failed`, `logout`, `pipeline_triggered`, `pipeline_trigger_failed`, `pipeline_viewed`, `pipeline_history_viewed`, `job_logs_viewed`, `admin_config_viewed`.
+
+**2. HTTP request logs** (`type: "access"`) — every HTTP request via Morgan:
+
+```json
+{
+  "type": "access",
+  "message": "::1 - POST /api/pipelines/trigger HTTP/1.1 200 234 - 12.456 ms",
+  "level": "info",
+  "timestamp": "2026-03-19T10:30:00.000Z"
+}
+```
+
+**3. Application logs** — general info, warnings, and errors from the server:
+
+```json
+{
+  "message": "Loaded config: 3 projects, 1 permission rules, 3 CI providers",
+  "level": "info",
+  "timestamp": "2026-03-19T10:30:00.000Z"
+}
+```
+
+### Implementation
+
+```
+Morgan (HTTP) ──→ morganStream ──→ logger.info({ type: "access" })
+                                                                      ──→ Winston ──→ stdout (JSON)
+access() helper ──→ logger.info({ type: "access", event: "..." })
+logger.info/warn/error ──→ logger directly
+```
+
+Winston is configured with a single `Console` transport using JSON format. There are no file transports — filtering by `type`, `level`, or `event` should be done downstream (e.g. CloudWatch, Loki, Datadog, `jq`).
+
+---
+
+## File Structure
 
 ```
 buildvalve/
 ├── config/
-│   ├── config.yml              # gitignored — copy from .env.example
-│   └── config.schema.json
+│   └── config.yml              # gitignored — user configuration
 ├── server/
 │   └── src/
 │       ├── index.ts            # Express app entry point
 │       ├── config.ts           # YAML loader + AJV schema validation
 │       ├── routes/
-│       │   ├── auth.ts         # SAML login/callback/metadata/logout/me
-│       │   ├── pipelines.ts    # Pipeline CRUD + trigger + history + logs
+│       │   ├── auth.ts         # Login/callback/logout/me
+│       │   ├── pipelines.ts    # Pipeline CRUD + trigger + history + logs + SSE
 │       │   └── admin.ts        # Config inspection (redacted) — admins only
 │       ├── middleware/
 │       │   ├── requireAuth.ts  # Session guard
@@ -102,38 +249,47 @@ buildvalve/
 │       │   ├── auth/
 │       │   │   ├── index.ts        # Auth provider registry
 │       │   │   ├── saml-provider.ts
+│       │   │   ├── oauth-provider.ts
+│       │   │   ├── local-provider.ts
+│       │   │   ├── mock-provider.ts
 │       │   │   └── types.ts
-│       │   ├── gitlab.ts           # Real GitLab API calls (service account)
-│       │   ├── mock-gitlab.ts      # In-memory mock for local dev
-│       │   └── permissions.ts      # Email + group matching
+│       │   ├── ci/
+│       │   │   ├── index.ts             # CI provider registry
+│       │   │   ├── types.ts             # CIProvider interface, CIPipeline, CIJob
+│       │   │   ├── gitlab-provider.ts
+│       │   │   ├── github-actions-provider.ts
+│       │   │   ├── circleci-provider.ts
+│       │   │   └── mock-provider.ts
+│       │   └── permissions.ts      # Project + pipeline authorization
 │       ├── types/
-│       │   └── index.ts            # AppConfig, GitLabPipeline, GitLabJob, etc.
+│       │   └── index.ts            # AppConfig, ProjectConfig, PipelineConfig, etc.
 │       └── utils/
-│           └── logger.ts
+│           ├── logger.ts           # Winston logger (stdout, JSON)
+│           └── access.ts           # Structured access log helper
 ├── client/
 │   └── src/
 │       ├── App.tsx             # Router + route definitions
-│       ├── vite-env.d.ts       # __APP_VERSION__ global type declaration
 │       ├── api/
 │       │   ├── client.ts       # fetchApi wrapper + ApiError
-│       │   └── queries.ts      # pipelinesApi, authApi, adminApi
+│       │   ├── queries.ts      # pipelinesApi, authApi, adminApi
+│       │   └── types.ts        # CIPipeline, CIJobDetail, etc.
+│       ├── hooks/
+│       │   └── useSSE.ts       # SSE hook, usePipelineStream, useLogStream
 │       ├── components/
 │       │   ├── layout/
 │       │   │   └── AppShell.tsx    # Sidebar nav, auth guard, layout
-│       │   └── ui/                 # Shadcn/ui components
+│       │   └── ui/                 # Shadcn/ui components + ProviderBadge
 │       ├── contexts/
 │       │   └── AuthContext.tsx     # User session state
 │       └── pages/
 │           ├── LoginPage.tsx
-│           ├── DashboardPage.tsx       # Project/pipeline table with status
+│           ├── PipelinesPage.tsx       # Project/pipeline table with provider badges
 │           ├── PipelineLaunchPage.tsx  # Variable form + trigger
-│           ├── PipelineRunPage.tsx     # Live run status + jobs table
-│           ├── PipelineLogsPage.tsx    # Full-screen live tail of job logs
+│           ├── PipelineRunPage.tsx     # Live run status + jobs (SSE)
+│           ├── PipelineLogsPage.tsx    # Full-screen live log stream (SSE)
 │           ├── PipelineHistoryPage.tsx # Execution history for a ref
 │           ├── ProfilePage.tsx
 │           └── AdminConfigPage.tsx     # Rendered config.yml (admins only)
-├── .env.example
-├── .gitignore
 ├── package.json                # Workspace root
 ├── README.md
 └── ARCHITECTURE.md
@@ -152,18 +308,20 @@ buildvalve/
 | POST | `/api/auth/saml/callback` | ACS — receive SAML assertion, create session |
 | GET | `/api/auth/saml/metadata` | SAML SP metadata XML |
 | POST | `/api/auth/logout` | Destroy session |
-| GET | `/api/auth/me` | Current user + allowed projects |
+| GET | `/api/auth/me` | Current user + allowed projects (filtered by pipeline permissions) |
 
 ### Pipelines
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/pipelines` | User's allowed pipeline configs |
-| POST | `/api/pipelines/trigger` | Trigger a pipeline (validates vars + perms) |
+| GET | `/api/pipelines` | User's allowed pipeline configs (filtered by pipeline permissions) |
+| POST | `/api/pipelines/trigger` | Trigger a pipeline (validates vars + project + pipeline perms) |
 | GET | `/api/pipelines/recent` | Recent pipelines for user's projects (LRU cached, 10s TTL) |
 | GET | `/api/pipelines/:projectId/history?ref=` | Pipeline execution history for a ref |
 | GET | `/api/pipelines/:projectId/:pipelineId` | Single pipeline + jobs |
-| GET | `/api/pipelines/:projectId/jobs/:jobId/trace` | Raw job log text (for live tail) |
+| GET | `/api/pipelines/:projectId/jobs/:jobId/trace` | Raw job log text |
+| GET | `/api/pipelines/:projectId/:pipelineId/stream` | **SSE** — real-time pipeline status + jobs |
+| GET | `/api/pipelines/:projectId/jobs/:jobId/trace/stream` | **SSE** — real-time job log streaming |
 
 ### Admin
 
@@ -173,46 +331,76 @@ buildvalve/
 
 ---
 
-## GitLab API Calls (Service Account)
-
-| Purpose | Method | GitLab endpoint |
-|---------|--------|-----------------|
-| Trigger pipeline | POST | `/api/v4/projects/:id/pipeline` |
-| List pipelines | GET | `/api/v4/projects/:id/pipelines` |
-| Pipeline details | GET | `/api/v4/projects/:id/pipelines/:pid` |
-| Pipeline jobs | GET | `/api/v4/projects/:id/pipelines/:pid/jobs` |
-| Job log trace | GET | `/api/v4/projects/:id/jobs/:jid/trace` |
-
----
-
 ## Frontend Routing
 
 | Route | Component | Description |
 |-------|-----------|-------------|
-| `/login` | `LoginPage` | SSO entry point |
-| `/` | `DashboardPage` | All allowed projects + pipeline table |
+| `/login` | `LoginPage` | SSO / OAuth / local login |
+| `/` | `PipelinesPage` | All allowed projects + pipeline table |
 | `/project/:id/pipeline/:name` | `PipelineLaunchPage` | Variable form + Launch button |
-| `/project/:id/pipeline/:name/run/:runId` | `PipelineRunPage` | Live pipeline status + jobs |
-| `/project/:id/pipeline/:name/run/:runId/job/:jobId/logs` | `PipelineLogsPage` | Full-screen live job log tail |
+| `/project/:id/pipeline/:name/run/:runId` | `PipelineRunPage` | Live pipeline status + jobs (SSE) |
+| `/project/:id/pipeline/:name/run/:runId/job/:jobId/logs` | `PipelineLogsPage` | Full-screen live job log stream (SSE) |
 | `/project/:id/pipeline/:name/history` | `PipelineHistoryPage` | Execution history |
 | `/profile` | `ProfilePage` | Logged-in user info |
 | `/admin` | `AdminConfigPage` | Config viewer (admins only) |
 
 ---
 
+## Deployment Topologies
+
+BuildValve supports two deployment modes:
+
+### Combined (default)
+
+```mermaid
+graph LR
+    Browser -->|HTTP| Container["Combined Container<br/>:3000"]
+    Container -->|static files| SPA["Client SPA"]
+    Container -->|/api/*| API["Express API"]
+    API --> CI["CI Providers"]
+```
+
+Server and client in one container. Express serves the built SPA as static files and handles all `/api/*` routes. Simplest to deploy and operate.
+
+### Split (API + CDN)
+
+```mermaid
+graph LR
+    Browser -->|HTTPS| CDN["CDN / nginx<br/>(Client SPA)"]
+    Browser -->|HTTPS| API["API Server<br/>(Express)"]
+    API --> CI["CI Providers"]
+```
+
+Client is built with `VITE_API_URL` pointing to the API server's domain. The client SPA can be hosted on any static hosting (CDN, S3, nginx). The API server runs separately with `CORS_ORIGIN` set to the client's domain.
+
+Three Docker images are published per release: `buildvalve` (combined), `buildvalve-server` (API only), `buildvalve-client` (nginx SPA).
+
+---
+
 ## Key Design Decisions
 
 ### Stateless Backend
-No database. Pipeline history is fetched live from GitLab on demand. The only server-side state is the in-memory LRU cache for recent pipelines (10s TTL) to avoid hammering GitLab on dashboard load.
+No database. Pipeline history is fetched live from CI providers on demand. The only server-side state is the in-memory LRU cache for recent pipelines (10s TTL) to avoid hammering provider APIs on dashboard load.
 
-### Mock GitLab Service
-`MockGitLabService` extends `GitLabService` and overrides all API methods with in-memory state. Enabled via `gitlab.mock: true` in config. Pipelines auto-complete after 15 seconds. Cleared on server restart.
+### CI Provider Abstraction
+All CI providers implement the `CIProvider` interface. The pipeline router resolves the provider per-project at request time. This allows mixing providers on the same dashboard and adding new providers without touching routes.
 
-### Variable Locking
+### Mock CI Provider
+`MockCIProvider` implements the `CIProvider` interface for all three provider types with in-memory state. Enabled via `mock: true` on any provider in config. Pipelines auto-complete after 15 seconds. Cleared on server restart.
+
+### Two-Layer Permission Model
+Project-level permissions (`permissions[]`) control which projects a user can see. Pipeline-level restrictions (`allowed_users`/`allowed_groups`) further restrict individual pipelines within an allowed project. Both layers are checked on every API call.
+
+### Variable Locking and Types
 `locked: true` variables are never sent to the client; they are injected server-side. Users cannot observe or override them. This is the primary security control for gating pipeline behaviour.
 
+Variables support three input types: `text` (free-form input, default), `select` (dropdown), and `radio` (inline radio buttons). When `options` is set on a variable, the server validates that submitted values are in the allowed list before triggering the pipeline — invalid values are rejected with a 400 error.
+
+### SSE over WebSocket
+Server-Sent Events were chosen over WebSocket because the data flow is strictly server-to-client (status updates, log streaming). SSE works through corporate proxies without special configuration, requires no extra dependencies, and browsers auto-reconnect on disconnect.
+
 ### Route Ordering (Express)
-The `/api/pipelines/:projectId/history` route is registered **before** `/api/pipelines/:projectId/:pipelineId` to prevent Express interpreting the literal string `"history"` as a `:pipelineId` param.
+The `/api/pipelines/:projectId/history` route is registered **before** `/api/pipelines/:projectId/:pipelineId` to prevent Express interpreting the literal string `"history"` as a `:pipelineId` param. SSE `/stream` routes are registered after regular routes.
 
 ### Version Injection
 `__APP_VERSION__` is a build-time constant injected by Vite from `client/package.json`. No runtime overhead; it is replaced by the literal string at build time.
@@ -225,11 +413,12 @@ The `/api/pipelines/:projectId/history` route is registered **before** `/api/pip
 |-------|------------|
 | Frontend | React 19 + TypeScript + Vite |
 | UI Components | Shadcn/ui + Tailwind CSS 3 |
-| Data fetching | TanStack Query v5 |
+| Data fetching | TanStack Query v5 + SSE (EventSource) |
 | Routing | React Router v7 |
-| Backend | Node.js + Express |
-| Auth | `@node-saml/passport-saml` |
+| Backend | Node.js 22 + Express |
+| Auth | SAML 2.0, OAuth 2.0 (GitHub, Google, GitLab), Local |
+| CI Providers | GitLab API v4, GitHub Actions API, CircleCI API v2 |
 | Config | YAML (`js-yaml`) + AJV schema validation |
-| Sessions | `express-session` (in-memory, Redis-swappable) |
+| Sessions | `express-session` (SQLite / Redis) |
 | Caching | LRU Cache (recent pipelines) |
-| Logging | Pino (`logger.ts`) |
+| Logging | Winston (stdout, JSON) |

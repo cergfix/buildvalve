@@ -53,8 +53,10 @@ describe("LoginPage", () => {
 
   it("shows branding", async () => {
     renderPage();
-    expect(screen.getByText("BuildValve")).toBeInTheDocument();
-    expect(screen.getByText("Sign in to launch pipelines")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("BuildValve")).toBeInTheDocument();
+      expect(screen.getByText("Sign in to launch pipelines")).toBeInTheDocument();
+    });
   });
 
   it("shows 'no providers' message when none configured", async () => {
@@ -204,6 +206,7 @@ describe("LoginPage", () => {
   });
 
   it("shows fetch error when providers API fails", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     mockGetProviders.mockRejectedValue(new Error("Network error"));
 
     renderPage();
@@ -211,5 +214,6 @@ describe("LoginPage", () => {
     await waitFor(() => {
       expect(screen.getByText(/Unable to load authentication providers/)).toBeInTheDocument();
     });
+    consoleSpy.mockRestore();
   });
 });

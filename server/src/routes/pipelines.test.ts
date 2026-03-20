@@ -26,6 +26,12 @@ function validateVariables(
         return `Variable "${varConfig.key}" is required`;
       }
     }
+    if (varConfig.options && varConfig.options.length > 0 && !varConfig.locked) {
+      const value = userVars[varConfig.key] ?? varConfig.value;
+      if (value && !varConfig.options.includes(value)) {
+        return `Variable "${varConfig.key}" must be one of: ${varConfig.options.join(", ")}`;
+      }
+    }
   }
   const knownKeys = new Set(pipelineConfig.variables.map((v) => v.key));
   for (const key of Object.keys(userVars)) {
@@ -82,6 +88,56 @@ describe("validateVariables", () => {
 
   it("returns null for pipeline with no variables", () => {
     const pipeline: PipelineConfig = { name: "test", ref: "main", variables: [] };
+    expect(validateVariables(pipeline, {})).toBeNull();
+  });
+
+  it("accepts valid select option", () => {
+    const pipeline: PipelineConfig = {
+      name: "test", ref: "main",
+      variables: [{ key: "REGION", value: "us-east-1", locked: false, type: "select", options: ["us-east-1", "eu-west-1"] }],
+    };
+    expect(validateVariables(pipeline, { REGION: "eu-west-1" })).toBeNull();
+  });
+
+  it("rejects invalid select option", () => {
+    const pipeline: PipelineConfig = {
+      name: "test", ref: "main",
+      variables: [{ key: "REGION", value: "us-east-1", locked: false, type: "select", options: ["us-east-1", "eu-west-1"] }],
+    };
+    const result = validateVariables(pipeline, { REGION: "ap-south-1" });
+    expect(result).toBe('Variable "REGION" must be one of: us-east-1, eu-west-1');
+  });
+
+  it("accepts valid radio option", () => {
+    const pipeline: PipelineConfig = {
+      name: "test", ref: "main",
+      variables: [{ key: "DRY_RUN", value: "true", locked: false, type: "radio", options: ["true", "false"] }],
+    };
+    expect(validateVariables(pipeline, { DRY_RUN: "false" })).toBeNull();
+  });
+
+  it("rejects invalid radio option", () => {
+    const pipeline: PipelineConfig = {
+      name: "test", ref: "main",
+      variables: [{ key: "DRY_RUN", value: "true", locked: false, type: "radio", options: ["true", "false"] }],
+    };
+    const result = validateVariables(pipeline, { DRY_RUN: "maybe" });
+    expect(result).toBe('Variable "DRY_RUN" must be one of: true, false');
+  });
+
+  it("accepts default value for select when user provides nothing", () => {
+    const pipeline: PipelineConfig = {
+      name: "test", ref: "main",
+      variables: [{ key: "REGION", value: "us-east-1", locked: false, type: "select", options: ["us-east-1", "eu-west-1"] }],
+    };
+    expect(validateVariables(pipeline, {})).toBeNull();
+  });
+
+  it("skips options validation for locked variables", () => {
+    const pipeline: PipelineConfig = {
+      name: "test", ref: "main",
+      variables: [{ key: "REGION", value: "custom-region", locked: true, type: "select", options: ["us-east-1", "eu-west-1"] }],
+    };
     expect(validateVariables(pipeline, {})).toBeNull();
   });
 });

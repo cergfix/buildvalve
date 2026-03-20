@@ -4,12 +4,13 @@ import { Input } from "../components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { useQuery } from "@tanstack/react-query";
 import { pipelinesApi } from "../api/queries";
-import type { RecentProjectPipelines, RecentPipeline } from "../api/types";
+import type { RecentProjectPipelines, RecentPipeline, ResolvedPipeline } from "../api/types";
 import { useNavigate, Link } from "react-router-dom";
 import { Play, Loader2, CheckCircle, XCircle, History, Search } from "lucide-react";
 import { useState } from "react";
+import { ProviderBadge } from "../components/ui/provider-badge";
 
-export function DashboardPage() {
+export function PipelinesPage() {
   const { projects } = useAuth();
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
@@ -30,16 +31,16 @@ export function DashboardPage() {
 
   const lowerQuery = searchQuery.toLowerCase();
   const filteredProjects = projects?.map(project => {
-    const isProjectMatch = project.name.toLowerCase().includes(lowerQuery) || 
+    const isProjectMatch = project.name.toLowerCase().includes(lowerQuery) ||
                            (project.description && project.description.toLowerCase().includes(lowerQuery));
-    
+
     if (isProjectMatch) return project;
-    
-    const matchingPipelines = project.pipelines.filter(p => 
-      p.name.toLowerCase().includes(lowerQuery) || 
+
+    const matchingPipelines = project.pipelines.filter(p =>
+      p.name.toLowerCase().includes(lowerQuery) ||
       p.ref.toLowerCase().includes(lowerQuery)
     );
-    
+
     return { ...project, pipelines: matchingPipelines };
   }).filter(project => project.pipelines.length > 0);
 
@@ -47,8 +48,8 @@ export function DashboardPage() {
     <div className="space-y-8 pb-10">
       <div className="relative w-full max-w-2xl">
         <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
-        <Input 
-          placeholder="Search projects, pipelines, or refs..." 
+        <Input
+          placeholder="Search projects, pipelines, or refs..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           className="pl-12 h-12 text-base shadow-sm border-[1.5px] rounded-lg bg-white dark:bg-slate-900"
@@ -56,8 +57,8 @@ export function DashboardPage() {
       </div>
 
       <div>
-        <h2 className="text-3xl font-bold tracking-tight">Launcher Dashboard</h2>
-        <p className="text-slate-500 mt-2">Trigger predefined GitLab pipelines across all your allowed projects.</p>
+        <h2 className="text-3xl font-bold tracking-tight">Pipelines</h2>
+        <p className="text-slate-500 mt-2">Trigger CI/CD pipelines across all your allowed projects.</p>
       </div>
 
       <div className="space-y-12">
@@ -70,7 +71,6 @@ export function DashboardPage() {
             <section key={project.id} className="space-y-4">
               <div className="border-b-[1.5px] border-slate-200 dark:border-slate-700 pb-2 mb-4">
               <h3 className="text-xl font-bold flex items-center gap-2">
-                <span className="bg-primary/10 text-primary w-8 h-8 rounded-md flex items-center justify-center text-sm shadow-sm">{project.id}</span>
                 {project.name}
               </h3>
               {project.description && <p className="text-slate-500 mt-1">{project.description}</p>}
@@ -83,7 +83,8 @@ export function DashboardPage() {
                 <Table>
                   <TableHeader className="">
                     <TableRow>
-                      <TableHead className="w-[30%]">Pipeline Name</TableHead>
+                      <TableHead className="w-[20%]">Pipeline Name</TableHead>
+                      <TableHead className="w-[10%]">Provider</TableHead>
                       <TableHead className="w-[10%]">Ref</TableHead>
                       <TableHead className="w-[15%]">Last Pipeline</TableHead>
                       <TableHead className="w-[15%]">Currently Running</TableHead>
@@ -91,12 +92,17 @@ export function DashboardPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {project.pipelines.map((pipeline) => {
+                    {(project.pipelines as unknown as ResolvedPipeline[]).map((pipeline) => {
                       const projectRecent = recentData?.find((r: RecentProjectPipelines) => r.projectId === project.id);
                       const projectPipelines: RecentPipeline[] = projectRecent?.pipelines || [];
-                      const matchingPipelines = projectPipelines.filter((p: RecentPipeline) => p.ref === pipeline.ref);
                       
-                      const runningPipeline = matchingPipelines.find((p: RecentPipeline) => p.status === "running" || p.status === "pending" || p.status === "created");
+                      // Filter by ref AND provider if provided by backend
+                      const matchingPipelines = projectPipelines.filter((p: RecentPipeline) => 
+                        p.ref === pipeline.ref && 
+                        (!p.provider || !pipeline.providerType || p.provider === pipeline.providerType)
+                      );
+
+                      const runningPipeline = matchingPipelines.find((p: RecentPipeline) => ["running", "pending", "created"].includes(p.status));
                       const lastPipeline = matchingPipelines.find((p: RecentPipeline) => !["running", "pending", "created"].includes(p.status));
 
                       const getStatusIcon = (status: string) => {
@@ -110,13 +116,16 @@ export function DashboardPage() {
                       <TableRow key={pipeline.name}>
                         <TableCell className="font-semibold">{pipeline.name}</TableCell>
                         <TableCell>
+                          <ProviderBadge type={pipeline.providerType} />
+                        </TableCell>
+                        <TableCell>
                           <code className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700 text-xs font-mono text-slate-600 dark:text-slate-300">{pipeline.ref}</code>
                         </TableCell>
                         <TableCell>
                           {lastPipeline ? (
                             <div className="flex items-center">
                               {getStatusIcon(lastPipeline.status)}
-                              <Link to={`/project/${project.id}/pipeline/${encodeURIComponent(pipeline.name)}/run/${lastPipeline.id}`} className="text-primary hover:underline font-medium text-xs flex items-center">
+                              <Link to={`/project/${encodeURIComponent(project.id)}/pipeline/${encodeURIComponent(pipeline.name)}/run/${lastPipeline.id}`} className="text-primary hover:underline font-medium text-xs flex items-center">
                                 #{lastPipeline.id}
                               </Link>
                             </div>
@@ -128,7 +137,7 @@ export function DashboardPage() {
                           {runningPipeline ? (
                             <div className="flex items-center">
                               <Loader2 className="text-blue-500 animate-spin inline mr-1" size={14} />
-                              <Link to={`/project/${project.id}/pipeline/${encodeURIComponent(pipeline.name)}/run/${runningPipeline.id}`} className="text-primary hover:underline font-medium text-xs flex items-center">
+                              <Link to={`/project/${encodeURIComponent(project.id)}/pipeline/${encodeURIComponent(pipeline.name)}/run/${runningPipeline.id}`} className="text-primary hover:underline font-medium text-xs flex items-center">
                                 #{runningPipeline.id}
                               </Link>
                             </div>
@@ -138,19 +147,19 @@ export function DashboardPage() {
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-2">
-                            <Button 
+                            <Button
                               variant="outline"
-                              className="font-bold text-xs px-3 shadow-none border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300" 
+                              className="font-bold text-xs px-3 shadow-none border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300"
                               size="sm"
-                              onClick={() => navigate(`/project/${project.id}/pipeline/${encodeURIComponent(pipeline.name)}/history`)}
+                              onClick={() => navigate(`/project/${encodeURIComponent(project.id)}/pipeline/${encodeURIComponent(pipeline.name)}/history`)}
                             >
                               <History size={14} className="mr-1 inline-block" />
                               History
                             </Button>
-                            <Button 
-                              className="font-bold text-xs px-3" 
+                            <Button
+                              className="font-bold text-xs px-3"
                               size="sm"
-                              onClick={() => navigate(`/project/${project.id}/pipeline/${encodeURIComponent(pipeline.name)}`)}
+                              onClick={() => navigate(`/project/${encodeURIComponent(project.id)}/pipeline/${encodeURIComponent(pipeline.name)}`)}
                             >
                               <Play size={14} className="mr-1 inline-block" />
                               Launch

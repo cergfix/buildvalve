@@ -1,3 +1,10 @@
+/**
+ * Base URL for API requests.
+ * Set VITE_API_URL at build time to point the client at a separate API server.
+ * Defaults to "" (same origin) for combined deployments.
+ */
+export const API_BASE = __API_URL__.replace(/\/+$/, "");
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -8,6 +15,7 @@ export class ApiError extends Error {
 }
 
 export async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> {
+  const url = `${API_BASE}${endpoint}`;
   const params: RequestInit = {
     ...options,
     credentials: "include",
@@ -17,8 +25,8 @@ export async function fetchApi<T>(endpoint: string, options?: RequestInit): Prom
     },
   };
 
-  const response = await fetch(endpoint, params);
-  
+  const response = await fetch(url, params);
+
   if (!response.ok) {
     let errorMsg = "API request failed";
     try {
