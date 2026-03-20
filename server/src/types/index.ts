@@ -146,13 +146,6 @@ export interface AppConfig {
   permissions: PermissionRule[];
   admins?: string[];
   external_links?: ExternalLink[];
-
-  /** @deprecated Use ci_providers instead. Kept for backward compatibility migration. */
-  gitlab?: {
-    url: string;
-    service_account_token: string;
-    mock?: boolean;
-  };
 }
 
 // --- Session augmentation ---

@@ -23,11 +23,13 @@ Copy the example config for local development:
 cp config/config.yml.example config/config.yml
 ```
 
-Enable mock mode in `config/config.yml` so you don't need a real GitLab instance or SSO:
+Enable mock mode in `config/config.yml` so you don't need real CI provider credentials or SSO:
 
 ```yaml
-gitlab:
-  mock: true
+ci_providers:
+  - name: default
+    type: gitlab
+    mock: true
 
 auth:
   providers:

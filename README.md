@@ -494,9 +494,9 @@ variables:
     options: ["true", "false"]
 ```
 
-### Backward compatibility
+### Notes
 
-The legacy `gitlab:` top-level config block is still accepted and auto-migrates to a `ci_providers` entry named `"default"`. Numeric project IDs are auto-converted to strings. Existing v0.2.x configs work without changes.
+The legacy `gitlab:` top-level config block from v0.2.x is no longer supported. Use `ci_providers[]` instead. Numeric project IDs are auto-converted to strings.
 
 ---
 

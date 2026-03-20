@@ -7,9 +7,11 @@ vi.mock("node:fs", () => ({
 }));
 
 const validYaml = `
-gitlab:
-  url: https://gitlab.example.com
-  service_account_token: tok123
+ci_providers:
+  - name: default
+    type: gitlab
+    url: https://gitlab.example.com
+    token: tok123
 auth:
   providers:
     - type: mock
@@ -23,6 +25,7 @@ session:
 projects:
   - id: 1
     name: My Project
+    provider: default
     pipelines:
       - name: deploy
         ref: main
@@ -87,21 +90,77 @@ describe("loadConfig", () => {
     vi.restoreAllMocks();
   });
 
-  it("parses valid YAML config with legacy gitlab block and auto-migrates", () => {
+  it("parses valid YAML config with ci_providers", () => {
     vi.mocked(readFileSync).mockReturnValue(validYaml);
     const config = loadConfig("/fake/path.yml");
-    // Legacy gitlab block is preserved
-    expect(config.gitlab?.url).toBe("https://gitlab.example.com");
-    // Auto-migrated ci_providers
     expect(config.ci_providers).toHaveLength(1);
     expect(config.ci_providers[0].name).toBe("default");
     expect(config.ci_providers[0].type).toBe("gitlab");
-    // Projects auto-migrated to string IDs
+    // Numeric IDs normalized to strings
     expect(config.projects[0].id).toBe("1");
     expect(config.projects[0].provider).toBe("default");
     expect(config.projects[0].external_id).toBe("1");
-    // Permissions auto-migrated to string IDs
     expect(config.permissions[0].projects[0]).toBe("1");
+  });
+
+  it("rejects config without ci_providers", () => {
+    const yaml = `
+auth:
+  providers:
+    - type: mock
+      enabled: true
+      label: Mock
+      mock_user:
+        email: test@test.com
+session:
+  secret: longenoughsecret
+  max_age: 3600
+projects:
+  - id: "1"
+    name: P
+    provider: default
+    pipelines:
+      - name: d
+        ref: main
+        variables: []
+permissions:
+  - users: [test@test.com]
+    projects: ["1"]
+`;
+    vi.mocked(readFileSync).mockReturnValue(yaml);
+    expect(() => loadConfig("/bad.yml")).toThrow("Invalid config");
+  });
+
+  it("rejects project without provider field", () => {
+    const yaml = `
+ci_providers:
+  - name: default
+    type: gitlab
+    url: https://gitlab.example.com
+    token: tok123
+auth:
+  providers:
+    - type: mock
+      enabled: true
+      label: Mock
+      mock_user:
+        email: test@test.com
+session:
+  secret: longenoughsecret
+  max_age: 3600
+projects:
+  - id: "1"
+    name: P
+    pipelines:
+      - name: d
+        ref: main
+        variables: []
+permissions:
+  - users: [test@test.com]
+    projects: ["1"]
+`;
+    vi.mocked(readFileSync).mockReturnValue(yaml);
+    expect(() => loadConfig("/bad.yml")).toThrow("Invalid config");
   });
 
   it("parses multi-provider config", () => {
@@ -161,9 +220,11 @@ describe("loadConfig", () => {
 
   it("parses config with local provider and users", () => {
     const yaml = `
-gitlab:
-  url: https://gitlab.example.com
-  service_account_token: tok123
+ci_providers:
+  - name: default
+    type: gitlab
+    url: https://gitlab.example.com
+    token: tok123
 auth:
   providers:
     - type: local
@@ -182,6 +243,7 @@ session:
 projects:
   - id: 1
     name: P
+    provider: default
     pipelines:
       - name: d
         ref: main
@@ -199,9 +261,11 @@ permissions:
 
   it("parses config with OAuth provider", () => {
     const yaml = `
-gitlab:
-  url: https://gitlab.example.com
-  service_account_token: tok123
+ci_providers:
+  - name: default
+    type: gitlab
+    url: https://gitlab.example.com
+    token: tok123
 auth:
   providers:
     - type: github
@@ -217,6 +281,7 @@ session:
 projects:
   - id: 1
     name: P
+    provider: default
     pipelines:
       - name: d
         ref: main
