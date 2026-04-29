@@ -373,7 +373,7 @@ graph LR
 
 Client is built with `VITE_API_URL` pointing to the API server's domain. The client SPA can be hosted on any static hosting (CDN, S3, nginx). The API server runs separately with `CORS_ORIGIN` set to the client's domain.
 
-Three Docker images are published per release: `buildvalve` (combined), `buildvalve-server` (API only), `buildvalve-client` (nginx SPA).
+Two Docker images are published per release: `buildvalve` (combined API + SPA) and `buildvalve-api` (API only — pair with the SPA hosted on a CDN).
 
 ---
 
