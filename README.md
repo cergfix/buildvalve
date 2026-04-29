@@ -175,13 +175,13 @@ Then create a derived image with your config (see [Quick Start with Docker](#qui
 
 ## Deployment Options
 
-BuildValve publishes three Docker images on each release:
+BuildValve publishes two Docker images and one SPA bundle on each release:
 
-| Image | Description | Use case |
-|-------|-------------|----------|
-| `ghcr.io/cergfix/buildvalve` | Combined server + client SPA | Default — simplest deployment |
-| `ghcr.io/cergfix/buildvalve-server` | API server only (no static files) | Separate API backend |
-| `ghcr.io/cergfix/buildvalve-client` | Client SPA on nginx | CDN / separate frontend hosting |
+| Artifact | Description | Use case |
+|----------|-------------|----------|
+| `ghcr.io/cergfix/buildvalve` | Combined API + client SPA | Default — simplest deployment |
+| `ghcr.io/cergfix/buildvalve-api` | API only (no static files) | Split deployment — pair with the SPA hosted on a CDN |
+| `buildvalve-app-<version>.tar.gz` | Pre-built SPA bundle (release asset) | Drop straight onto your CDN — no Node.js build required |
 
 ### Combined (default)
 
@@ -193,34 +193,33 @@ docker run -d -p 3000:3000 -v ./config.yml:/app/config/config.yml:ro ghcr.io/cer
 
 ### Split deployment (API + CDN)
 
-For deploying the client on a CDN and the server as a separate API:
+For deploying the client on a CDN and the API as a separate backend:
 
-**1. Build the client with `VITE_API_URL`:**
+**1. Get the SPA bundle.** Either grab the pre-built tarball from the GitHub release:
 
 ```bash
-# Using the client Docker image
-docker build --build-arg VITE_API_URL=https://api.buildvalve.example.com -f Dockerfile.client -t my-buildvalve-client .
+curl -LO https://github.com/cergfix/buildvalve/releases/download/v0.3.2/buildvalve-app-0.3.2.tar.gz
+mkdir buildvalve-app && tar -xzf buildvalve-app-0.3.2.tar.gz -C buildvalve-app
+```
 
-# Or build from source
+…or build from source with a baked-in API URL:
+
+```bash
 VITE_API_URL=https://api.buildvalve.example.com npm run build --workspace=client
 ```
 
-**2. Run the API server:**
+**2. Run the API:**
 
 ```bash
 docker run -d -p 3000:3000 \
   -e CORS_ORIGIN=https://buildvalve.example.com \
   -v ./config.yml:/app/config/config.yml:ro \
-  ghcr.io/cergfix/buildvalve-server:latest
+  ghcr.io/cergfix/buildvalve-api:latest
 ```
 
-**3. Serve the client** (nginx, S3, CloudFront, Vercel, etc.):
+**3. Upload the SPA to your CDN** (S3 + CloudFront, Vercel, Netlify, etc.). Configure SPA fallback so unknown routes serve `index.html`.
 
-```bash
-docker run -d -p 80:80 my-buildvalve-client
-```
-
-The `VITE_API_URL` env var is baked into the client at build time. Set `CORS_ORIGIN` on the server to allow cross-origin requests from the client domain.
+The pre-built tarball ships with `VITE_API_URL=""` (same-origin). To use it on a CDN that does not proxy `/api/*` to your API host, either build from source with `VITE_API_URL` set, or configure your CDN to rewrite `/api/*` to the API origin. Set `CORS_ORIGIN` on the API to allow cross-origin requests from the SPA domain.
 
 ---
 
