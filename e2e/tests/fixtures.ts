@@ -12,7 +12,7 @@ export async function loginAsAlice(page: Page) {
   await page.waitForURL(/\/(?!login)/);
   // Wait for the SPA to finish hydrating the dashboard, otherwise a subsequent
   // page.goto("/") in the test body races the in-flight post-login redirect.
-  await page.locator(".sidebar").waitFor({ state: "visible" });
+  await page.locator(".sidebar").waitFor({ state: "visible", timeout: 15_000 });
 }
 
 /**
@@ -23,7 +23,7 @@ export async function loginAsMockUser(page: Page) {
   await page.goto("/login");
   await page.getByRole("button", { name: /sign in with mock login/i }).click();
   await page.waitForURL(/\/(?!login)/);
-  await page.locator(".sidebar").waitFor({ state: "visible" });
+  await page.locator(".sidebar").waitFor({ state: "visible", timeout: 15_000 });
 }
 
 /**

@@ -31,11 +31,12 @@ test.describe("PipelineHistoryPage", () => {
   test("clicking a row navigates to the run page", async ({ page }) => {
     await page.goto("/project/1/pipeline/Deploy");
     await page.getByRole("button", { name: /launch pipeline/i }).click();
-    const runUrl = page.url();
-    const id = runUrl.split("/").pop();
+    // Wait for the post-trigger navigation to settle so we read the real run id.
+    await page.waitForURL(/\/run\/\d+$/);
+    const id = page.url().split("/").pop();
 
     await page.goto("/project/1/pipeline/Deploy/history");
-    await page.getByText(`#${id}`).click();
+    await page.getByText(`#${id}`).first().click();
     await expect(page).toHaveURL(new RegExp(`/run/${id}$`));
   });
 
@@ -56,7 +57,8 @@ test.describe("RecentRunsPage", () => {
     await page.goto("/");
     await page.getByRole("link", { name: /recent runs/i }).click();
     await expect(page).toHaveURL(/\/recent-runs$/);
-    await expect(page.getByText(/recent runs/i)).toBeVisible();
+    // Scope to the page heading — "recent runs" also appears in the sidebar nav.
+    await expect(page.getByRole("heading", { name: /recent runs/i })).toBeVisible();
     // At least one row visible.
     await expect(page.locator(".history-row").first()).toBeVisible();
   });
