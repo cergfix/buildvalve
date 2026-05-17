@@ -1,4 +1,4 @@
-import { Outlet, Navigate, NavLink, useLocation } from "react-router-dom";
+import { Outlet, Navigate, NavLink, Link, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../../contexts/AuthContext";
 import { pipelinesApi } from "../../api/queries";
@@ -69,11 +69,11 @@ export function AppShell() {
     <div className="app">
       <aside className="sidebar">
         <div>
-          <div className="brand">
+          <Link to="/" className="brand" aria-label="back to pipelines">
             <span className="brand-dot" aria-hidden="true" />
             <span>BUILDVALVE</span>
             <span className="ver">v{__APP_VERSION__}</span>
-          </div>
+          </Link>
 
           <div className="nav-group">
             <div className="nav-heading">workspace</div>
