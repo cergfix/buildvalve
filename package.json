@@ -5,6 +5,7 @@
   "license": "Apache-2.0",
   "workspaces": [
     "server",
-    "client"
+    "client",
+    "e2e"
   ]
 }

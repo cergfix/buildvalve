@@ -165,6 +165,18 @@ jobs:
                       options:
                         - "true"
                         - "false"
+                    # Conditional variable — only shown when ENVIRONMENT=production.
+                    # Used by the Playwright "needs" e2e tests.
+                    - key: NOTIFY_STAKEHOLDERS
+                      value: "false"
+                      locked: false
+                      description: Email the on-call list when the rollout completes
+                      type: radio
+                      options:
+                        - "true"
+                        - "false"
+                      needs:
+                        ENVIRONMENT: production
             - id: api-service
               name: API Service (CircleCI)
               description: A CircleCI project
@@ -533,389 +545,28 @@ jobs:
 
           rm -f "$CJ"
 
-      # ── UI smoke tests (Selenium) ───────────────────────────────────────
-      - name: Set up Chrome and Selenium
-        run: |
-          pip install selenium webdriver-manager
+      # ── UI smoke tests (Playwright) ─────────────────────────────────────
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
 
-      - name: "UI: Selenium smoke tests"
-        run: |
-          python3 << 'PYEOF'
-          import sys
-          import time
-          from selenium import webdriver
-          from selenium.webdriver.common.by import By
-          from selenium.webdriver.chrome.options import Options
-          from selenium.webdriver.chrome.service import Service
-          from selenium.webdriver.support.ui import WebDriverWait
-          from selenium.webdriver.support import expected_conditions as EC
-          from webdriver_manager.chrome import ChromeDriverManager
+      - name: Install workspace deps
+        run: npm ci
 
-          BASE = "http://localhost:3000"
-          failures = []
+      - name: Install Playwright browsers
+        run: npx --workspace e2e playwright install --with-deps chromium
 
-          def fail(msg):
-              print(f"FAIL: {msg}")
-              failures.append(msg)
+      - name: "UI: Playwright e2e suite"
+        run: npm --workspace e2e test
+        env:
+          BASE_URL: http://localhost:3000
 
-          options = Options()
-          options.add_argument("--headless=new")
-          options.add_argument("--no-sandbox")
-          options.add_argument("--disable-dev-shm-usage")
-          options.add_argument("--disable-gpu")
-          service = Service(ChromeDriverManager().install())
-          driver = webdriver.Chrome(service=service, options=options)
-          wait = WebDriverWait(driver, 10)
-
-          try:
-              # ── Login page ──────────────────────────────────────────────
-              print("--- Login page ---")
-              driver.get(BASE)
-              wait.until(EC.url_contains("/login"))
-              print(f"Redirected to: {driver.current_url}")
-
-              try:
-                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'BuildValve')]")))
-                  print("OK: BuildValve branding visible")
-              except:
-                  fail("BuildValve branding not found on login page")
-
-              try:
-                  wait.until(EC.presence_of_element_located((By.XPATH, "//input[@type='email']")))
-                  print("OK: Local login email input found")
-              except:
-                  fail("Local login email input not found")
-
-              try:
-                  wait.until(EC.presence_of_element_located((By.XPATH, "//input[@type='password']")))
-                  print("OK: Local login password input found")
-              except:
-                  fail("Local login password input not found")
-
-              try:
-                  mock_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Sign in with Mock Login')]")))
-                  print(f"OK: Mock login button found: '{mock_btn.text}'")
-              except:
-                  fail("Mock login button not found")
-                  mock_btn = None
-
-              try:
-                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'or')]")))
-                  print("OK: 'or' separator visible between providers")
-              except:
-                  fail("'or' separator not found")
-
-              # ── Local login: wrong password ───────────────────────────
-              print("--- Local login: wrong password ---")
-              try:
-                  email_input = driver.find_element(By.XPATH, "//input[@type='email']")
-                  pass_input = driver.find_element(By.XPATH, "//input[@type='password']")
-                  submit_btn = driver.find_element(By.XPATH, "//button[@type='submit']")
-
-                  email_input.send_keys("alice@company.com")
-                  pass_input.send_keys("wrongpassword")
-                  submit_btn.click()
-
-                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(@class, 'text-rose') or contains(@class, 'text-red')]")))
-                  print("OK: Error message shown for wrong password")
-              except Exception as e:
-                  fail(f"Local login error test: {e}")
-
-              # ── Local login: correct password ─────────────────────────
-              print("--- Local login: correct password ---")
-              try:
-                  driver.get(f"{BASE}/login")
-                  wait.until(EC.presence_of_element_located((By.XPATH, "//input[@type='email']")))
-
-                  email_input = driver.find_element(By.XPATH, "//input[@type='email']")
-                  pass_input = driver.find_element(By.XPATH, "//input[@type='password']")
-                  email_input.send_keys("alice@company.com")
-                  pass_input.send_keys("secret123")
-
-                  submit_btn = driver.find_element(By.XPATH, "//button[@type='submit']")
-                  submit_btn.click()
-
-                  wait.until(lambda d: "/login" not in d.current_url)
-                  print(f"After local login URL: {driver.current_url}")
-              except Exception as e:
-                  fail(f"Local login success test: {e}")
-
-              # ── Dashboard: multi-provider projects ────────────────────
-              print("--- Dashboard: multi-provider projects ---")
-              try:
-                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Test Project (GitLab)')]")))
-                  print("OK: GitLab project visible on dashboard")
-              except:
-                  fail("GitLab project not found on dashboard")
-
-              try:
-                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Frontend App (GitHub)')]")))
-                  print("OK: GitHub project visible on dashboard")
-              except:
-                  fail("GitHub project not found on dashboard")
-
-              try:
-                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'API Service (CircleCI)')]")))
-                  print("OK: CircleCI project visible on dashboard")
-              except:
-                  fail("CircleCI project not found on dashboard")
-
-              # ── Provider badges ───────────────────────────────────────
-              print("--- Provider badges ---")
-              try:
-                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'GitLab')]")))
-                  print("OK: GitLab provider badge visible")
-              except:
-                  fail("GitLab provider badge not found")
-
-              try:
-                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'GitHub')]")))
-                  print("OK: GitHub provider badge visible")
-              except:
-                  fail("GitHub provider badge not found")
-
-              try:
-                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'CircleCI')]")))
-                  print("OK: CircleCI provider badge visible")
-              except:
-                  fail("CircleCI provider badge not found")
-
-              # ── Pipeline names across providers ───────────────────────
-              print("--- Pipeline names ---")
-              for name in ["Deploy", "Build & Deploy", "Release"]:
-                  try:
-                      wait.until(EC.presence_of_element_located((By.XPATH, f"//*[contains(text(), '{name}')]")))
-                      print(f"OK: Pipeline '{name}' visible")
-                  except:
-                      fail(f"Pipeline '{name}' not found on dashboard")
-
-              # ── Dashboard search ──────────────────────────────────────
-              print("--- Dashboard search ---")
-              try:
-                  search_input = wait.until(EC.presence_of_element_located((By.XPATH, "//input[@placeholder]")))
-                  search_input.send_keys("GitHub")
-                  time.sleep(0.5)
-                  # Should show GitHub project, hide others
-                  github_visible = len(driver.find_elements(By.XPATH, "//*[contains(text(), 'Frontend App (GitHub)')]")) > 0
-                  gitlab_visible = len(driver.find_elements(By.XPATH, "//*[contains(text(), 'Test Project (GitLab)')]")) > 0
-                  if github_visible:
-                      print("OK: GitHub project visible after search")
-                  else:
-                      fail("GitHub project not visible after search for 'GitHub'")
-                  if not gitlab_visible:
-                      print("OK: GitLab project hidden after search for 'GitHub'")
-
-                  # Clear search
-                  search_input.clear()
-                  time.sleep(0.5)
-              except Exception as e:
-                  fail(f"Dashboard search: {e}")
-
-              # ── External links in sidebar ──────────────────────────
-              print("--- External links ---")
-              try:
-                  grafana_link = wait.until(EC.presence_of_element_located((By.XPATH, "//a[contains(., 'Grafana')]")))
-                  href = grafana_link.get_attribute("href")
-                  target = grafana_link.get_attribute("target")
-                  assert href.rstrip("/") == "https://grafana.example.com", f"Grafana href wrong: {href}"
-                  assert target == "_blank", f"Grafana target wrong: {target}"
-                  print("OK: Grafana external link found with correct href and target")
-              except Exception as e:
-                  fail(f"Grafana external link: {e}")
-
-              # ── Navigate to pipeline launch ─────────────────────────
-              print("--- Pipeline launch page ---")
-              try:
-                  # v0.4.0 redesign uses lowercase "launch" on the pipeline rows.
-                  launch_link = wait.until(EC.element_to_be_clickable(
-                      (By.XPATH, "//a[contains(translate(text(), 'L', 'l'), 'launch')] | //button[contains(translate(text(), 'L', 'l'), 'launch')]")))
-                  launch_link.click()
-                  wait.until(EC.url_contains("/pipeline/"))
-                  print(f"Launch page URL: {driver.current_url}")
-
-                  wait.until(EC.presence_of_element_located(
-                      (By.XPATH, "//button[contains(translate(text(), 'L', 'l'), 'launch')] | //*[contains(text(), 'Deploy')]")))
-                  print("OK: Pipeline launch page loaded")
-              except Exception as e:
-                  fail(f"Pipeline launch page: {e}")
-
-              # ── Select and radio variable types ──────────────────
-              print("--- Select and radio variable types ---")
-              try:
-                  # Navigate to the GitHub project's Build & Deploy launch page (has select + radio)
-                  driver.get(f"{BASE}/project/frontend/pipeline/Build%20%26%20Deploy")
-                  wait.until(EC.presence_of_element_located((By.XPATH, "//button[contains(translate(text(), 'L', 'l'), 'launch')]")))
-
-                  # v0.4.0 redesign uses a custom TechSelect listbox (no native <select>).
-                  # The trigger renders as a .select-trigger button; clicking opens .select-menu with .select-option items.
-                  trigger = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, ".select-trigger")))
-                  print("OK: TechSelect trigger found")
-                  trigger.click()
-                  menu = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".select-menu")))
-                  option_texts = [o.text.strip() for o in menu.find_elements(By.CSS_SELECTOR, ".select-option")]
-                  assert any("staging" in t for t in option_texts), f"'staging' not in options: {option_texts}"
-                  assert any("production" in t for t in option_texts), f"'production' not in options: {option_texts}"
-                  print(f"OK: Select options present: {option_texts}")
-
-                  # v0.4.0 redesign uses .var-pill buttons instead of native radio inputs.
-                  pills = driver.find_elements(By.CSS_SELECTOR, ".var-pill")
-                  assert len(pills) >= 2, f"Expected at least 2 pill buttons, found {len(pills)}"
-                  pill_labels = [p.text.strip() for p in pills]
-                  assert "true" in pill_labels, f"'true' not in pill labels: {pill_labels}"
-                  assert "false" in pill_labels, f"'false' not in pill labels: {pill_labels}"
-                  print(f"OK: Radio pills found ({len(pills)}) with labels: {pill_labels}")
-
-                  # Select an option from the open listbox
-                  prod_option = next(o for o in menu.find_elements(By.CSS_SELECTOR, ".select-option") if "production" in o.text)
-                  prod_option.click()
-                  wait.until(lambda d: "production" in d.find_element(By.CSS_SELECTOR, ".select-trigger").text)
-                  print("OK: Select value changed to 'production'")
-
-                  # Click the 'false' pill and verify it is marked selected
-                  false_pill = next(p for p in pills if p.text.strip() == "false")
-                  false_pill.click()
-                  wait.until(lambda d: "selected" in next(p for p in d.find_elements(By.CSS_SELECTOR, ".var-pill") if p.text.strip() == "false").get_attribute("class"))
-                  print("OK: Radio pill 'false' selected")
-              except Exception as e:
-                  fail(f"Select/radio variable types: {e}")
-
-              # Go back to dashboard for remaining tests
-              driver.get(BASE)
-              wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Test Project')]")))
-
-              # ── Per-pipeline permissions (alice is in devops) ──────
-              print("--- Per-pipeline permissions ---")
-              try:
-                  driver.get(BASE)
-                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Test Project')]")))
-                  # Alice (devops) should see both Deploy and Deploy Prod
-                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Deploy Prod')]")))
-                  print("OK: Alice (devops) can see Deploy Prod")
-              except Exception as e:
-                  fail(f"Per-pipeline permissions (alice devops): {e}")
-
-              # ── Trigger a pipeline and view run ──────────────────────
-              print("--- Trigger pipeline ---")
-              try:
-                  # Navigate directly to the Deploy launch page to avoid stale elements
-                  driver.get(f"{BASE}/project/1/pipeline/Deploy")
-                  trigger_btn = wait.until(EC.element_to_be_clickable(
-                      (By.XPATH, "//button[contains(translate(text(), 'L', 'l'), 'launch')]")))
-                  trigger_btn.click()
-                  wait.until(EC.url_contains("/run/"))
-                  print(f"Pipeline run URL: {driver.current_url}")
-
-                  # v0.4.0 redesign renders the jobs section as "jobs" / "jobs · live" section head.
-                  wait.until(EC.presence_of_element_located(
-                      (By.XPATH, "//*[contains(translate(text(), 'JOBS', 'jobs'), 'jobs')]")))
-                  print("OK: Pipeline run page loaded with jobs")
-              except Exception as e:
-                  fail(f"Trigger pipeline: {e}")
-
-              # ── SSE live streaming indicator ─────────────────────────
-              print("--- SSE streaming indicator ---")
-              try:
-                  # v0.4.0 shows "live streaming via SSE" or "connecting…" in the SSE indicator.
-                  wait.until(EC.presence_of_element_located(
-                      (By.XPATH, "//*[contains(translate(text(), 'LCS', 'lcs'), 'live streaming') or contains(translate(text(), 'C', 'c'), 'connecting')]")))
-                  print("OK: SSE streaming indicator visible on pipeline run page")
-              except Exception as e:
-                  fail(f"SSE streaming indicator: {e}")
-
-              # ── Profile page ────────────────────────────────────────
-              print("--- Profile page ---")
-              driver.get(f"{BASE}/profile")
-              try:
-                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'alice@company.com')]")))
-                  print("OK: User email visible on profile page")
-              except:
-                  fail("User email not found on profile page")
-
-              # ── Admin page ──────────────────────────────────────────
-              print("--- Admin page ---")
-              driver.get(f"{BASE}/admin")
-              try:
-                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'REDACTED')]")))
-                  print("OK: Admin config page shows redacted values")
-              except:
-                  fail("Admin config page did not show redacted values")
-
-              # ── Logout and re-login with mock ───────────────────────
-              print("--- Logout ---")
-              try:
-                  driver.get(BASE)
-                  # v0.4.0 sidebar uses lowercase "pipelines" / "logout".
-                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(translate(text(), 'P', 'p'), 'pipelines')]")))
-                  logout_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(translate(., 'LOGT', 'logt'), 'logout')]")))
-                  logout_btn.click()
-                  wait.until(EC.url_contains("/login"))
-                  print("OK: Logged out and redirected to login page")
-              except Exception as e:
-                  fail(f"Logout: {e}")
-
-              # ── Mock login button ───────────────────────────────────
-              print("--- Mock login via button ---")
-              try:
-                  mock_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Sign in with Mock Login')]")))
-                  mock_btn.click()
-                  wait.until(lambda d: "/login" not in d.current_url)
-                  print(f"After mock login URL: {driver.current_url}")
-
-                  driver.get(f"{BASE}/profile")
-                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'test@test.com')]")))
-                  print("OK: Mock login successful, test@test.com shown on profile")
-              except Exception as e:
-                  fail(f"Mock login: {e}")
-
-              # ── Per-pipeline permissions (mock user NOT in devops) ──
-              print("--- Per-pipeline permissions (mock user) ---")
-              try:
-                  driver.get(BASE)
-                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Deploy')]")))
-                  # Mock user (test group, not devops) should NOT see Deploy Prod
-                  deploy_prod_elements = driver.find_elements(By.XPATH, "//*[text()='Deploy Prod']")
-                  if len(deploy_prod_elements) == 0:
-                      print("OK: Mock user (non-devops) cannot see Deploy Prod")
-                  else:
-                      fail("Mock user should not see Deploy Prod (devops-only pipeline)")
-              except Exception as e:
-                  fail(f"Per-pipeline permissions (mock user): {e}")
-
-              # ── Error message display ───────────────────────────────
-              print("--- Login page error messages ---")
-              try:
-                  driver.get(f"{BASE}/login?error=access_denied")
-                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Access denied')]")))
-                  print("OK: access_denied error message displayed")
-              except Exception as e:
-                  fail(f"Error message display: {e}")
-
-          except Exception as e:
-              fail(f"Unexpected error: {e}")
-              print(f"Current URL: {driver.current_url}")
-              print(f"Page source (first 2000 chars):\n{driver.page_source[:2000]}")
-          finally:
-              if failures:
-                  driver.save_screenshot("/tmp/selenium-failure.png")
-                  print(f"\nScreenshot saved to /tmp/selenium-failure.png")
-              driver.quit()
-
-          if failures:
-              print(f"\n{'='*50}")
-              print(f"{len(failures)} UI test(s) failed:")
-              for f in failures:
-                  print(f"  - {f}")
-              sys.exit(1)
-          else:
-              print(f"\nAll UI smoke tests passed")
-          PYEOF
-
-      - name: Upload screenshot on failure
+      - name: Upload Playwright report on failure
         if: failure()
         uses: actions/upload-artifact@v5
         with:
-          name: selenium-screenshot
-          path: /tmp/selenium-failure.png
+          name: playwright-report
+          path: e2e/playwright-report/
           if-no-files-found: ignore
 
       - name: Show container logs on failure
@@ -971,6 +622,9 @@ jobs:
           NGINX
 
       - name: Write test config
+        # Mirror the combined-image config so the same Playwright suite runs
+        # against both topologies — split-deployment only changes the network
+        # layer (CDN-hosted SPA + cross-origin /api), not the feature surface.
         run: |
           cat > /tmp/config.yml <<'YAML'
           ci_providers:
@@ -979,8 +633,17 @@ jobs:
               url: https://gitlab.example.com
               token: glpat-test
               mock: true
+            - name: mock-github
+              type: github-actions
+              github_token: ghp-test
+              mock: true
+            - name: mock-circleci
+              type: circleci
+              circleci_token: cc-test
+              mock: true
           admins:
             - test@test.com
+            - alice@company.com
           auth:
             providers:
               - type: mock
@@ -996,29 +659,78 @@ jobs:
                   - email: alice@company.com
                     password: secret123
                     groups: [devops]
+                  - email: noaccess@company.com
+                    password: pass456
           session:
             secret: smoke-test-secret-1234
             max_age: 3600
           projects:
             - id: "1"
-              name: Split Test Project
-              description: Testing split deployment
+              name: Test Project (GitLab)
+              description: A GitLab test project
               provider: mock-gitlab
               external_id: "1"
               pipelines:
                 - name: Deploy
                   ref: main
+                  variables: []
+                - name: Deploy Prod
+                  ref: main
+                  variables: []
+                  allowed_groups: [devops]
+            - id: frontend
+              name: Frontend App (GitHub)
+              description: A GitHub Actions project
+              provider: mock-github
+              external_id: myorg/frontend
+              pipelines:
+                - name: Build & Deploy
+                  ref: main
+                  workflow_id: deploy.yml
                   variables:
                     - key: ENVIRONMENT
                       value: staging
                       locked: false
+                      description: Target environment
                       type: select
                       options:
                         - staging
                         - production
+                    - key: DRY_RUN
+                      value: "true"
+                      locked: false
+                      description: Simulate without applying
+                      type: radio
+                      options:
+                        - "true"
+                        - "false"
+                    - key: NOTIFY_STAKEHOLDERS
+                      value: "false"
+                      locked: false
+                      description: Email the on-call list when the rollout completes
+                      type: radio
+                      options:
+                        - "true"
+                        - "false"
+                      needs:
+                        ENVIRONMENT: production
+            - id: api-service
+              name: API Service (CircleCI)
+              description: A CircleCI project
+              provider: mock-circleci
+              external_id: gh/myorg/api
+              pipelines:
+                - name: Release
+                  ref: main
+                  variables: []
           permissions:
             - users: [test@test.com, alice@company.com]
-              projects: ["1"]
+              projects: ["1", frontend, api-service]
+          external_links:
+            - label: Grafana
+              url: https://grafana.example.com
+            - label: Wiki
+              url: https://wiki.example.com
           YAML
 
       - name: Start API container
@@ -1084,7 +796,7 @@ jobs:
 
           echo "--- Pipelines ---"
           PIPELINES=$(curl -sf -b "$CJ" http://localhost:3000/api/pipelines)
-          echo "$PIPELINES" | grep -q '"Split Test Project"'
+          echo "$PIPELINES" | grep -q '"Test Project (GitLab)"'
           echo "OK: Pipelines endpoint works"
 
           echo "--- Trigger ---"
@@ -1129,115 +841,29 @@ jobs:
           [ "$CODE" = "200" ] || { echo "FAIL: CSS returned $CODE"; exit 1; }
           echo "OK: CSS loads"
 
-      - name: Set up Chrome and Selenium
-        run: pip install selenium webdriver-manager
+      # ── UI smoke tests (Playwright) — split deployment ─────────────────
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
 
-      - name: "Split UI: Selenium smoke tests"
-        run: |
-          python3 << 'PYEOF'
-          import sys
-          import time
-          from selenium import webdriver
-          from selenium.webdriver.common.by import By
-          from selenium.webdriver.chrome.options import Options
-          from selenium.webdriver.chrome.service import Service
-          from selenium.webdriver.support.ui import WebDriverWait
-          from selenium.webdriver.support import expected_conditions as EC
-          from webdriver_manager.chrome import ChromeDriverManager
+      - name: Install workspace deps
+        run: npm ci
 
-          # SPA on :8080 (CDN simulation), API on :3000
-          CLIENT = "http://localhost:8080"
-          failures = []
+      - name: Install Playwright browsers
+        run: npx --workspace e2e playwright install --with-deps chromium
 
-          def fail(msg):
-              print(f"FAIL: {msg}")
-              failures.append(msg)
+      - name: "Split UI: Playwright e2e suite"
+        run: npm --workspace e2e test
+        env:
+          # SPA on :8080 (nginx) proxying /api to the API container on :3000.
+          BASE_URL: http://localhost:8080
 
-          options = Options()
-          options.add_argument("--headless=new")
-          options.add_argument("--no-sandbox")
-          options.add_argument("--disable-dev-shm-usage")
-          options.add_argument("--disable-gpu")
-          service = Service(ChromeDriverManager().install())
-          driver = webdriver.Chrome(service=service, options=options)
-          wait = WebDriverWait(driver, 10)
-
-          try:
-              # ── Login page loads from static SPA host ───────────
-              print("--- Login page ---")
-              driver.get(CLIENT)
-              wait.until(EC.url_contains("/login"))
-              print(f"URL: {driver.current_url}")
-
-              try:
-                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'BuildValve')]")))
-                  print("OK: BuildValve branding on static SPA host")
-              except:
-                  fail("BuildValve branding not found on static SPA host")
-
-              # ── Login via local credentials (cross-origin to API) ──
-              print("--- Local login (cross-origin) ---")
-              try:
-                  wait.until(EC.presence_of_element_located((By.XPATH, "//input[@type='email']")))
-                  email_input = driver.find_element(By.XPATH, "//input[@type='email']")
-                  pass_input = driver.find_element(By.XPATH, "//input[@type='password']")
-                  email_input.send_keys("alice@company.com")
-                  pass_input.send_keys("secret123")
-                  submit_btn = driver.find_element(By.XPATH, "//button[@type='submit']")
-                  submit_btn.click()
-                  wait.until(lambda d: "/login" not in d.current_url)
-                  print(f"Logged in, URL: {driver.current_url}")
-              except Exception as e:
-                  fail(f"Local login: {e}")
-
-              # ── Dashboard loads with project ──────────────────
-              print("--- Dashboard ---")
-              try:
-                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Split Test Project')]")))
-                  print("OK: Project visible on dashboard (API data loaded cross-origin)")
-              except Exception as e:
-                  fail(f"Dashboard: {e}")
-
-              # ── Launch page with select variable ─────────────
-              print("--- Launch page with select ---")
-              try:
-                  driver.get(f"{CLIENT}/project/1/pipeline/Deploy")
-                  # v0.4.0 redesign uses a custom TechSelect (no native <select>).
-                  trigger = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, ".select-trigger")))
-                  trigger.click()
-                  menu = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".select-menu")))
-                  option_texts = [o.text.strip() for o in menu.find_elements(By.CSS_SELECTOR, ".select-option")]
-                  assert any("staging" in t for t in option_texts) and any("production" in t for t in option_texts), \
-                      f"Options: {option_texts}"
-                  print(f"OK: Select dropdown works in split deployment: {option_texts}")
-              except Exception as e:
-                  fail(f"Launch page select: {e}")
-
-          except Exception as e:
-              fail(f"Unexpected error: {e}")
-              print(f"URL: {driver.current_url}")
-              print(f"Page source:\n{driver.page_source[:2000]}")
-          finally:
-              if failures:
-                  driver.save_screenshot("/tmp/split-selenium-failure.png")
-              driver.quit()
-
-          if failures:
-              print(f"\n{'='*50}")
-              print(f"{len(failures)} split UI test(s) failed:")
-              for f in failures:
-                  print(f"  - {f}")
-              sys.exit(1)
-          else:
-              print(f"\nAll split UI smoke tests passed")
-          PYEOF
-
-      - name: Upload screenshot on failure
+      - name: Upload Playwright report on failure
         if: failure()
         uses: actions/upload-artifact@v5
         with:
-          name: split-selenium-screenshot
-          path: /tmp/split-selenium-failure.png
+          name: playwright-report-split
+          path: e2e/playwright-report/
           if-no-files-found: ignore
 
       - name: Show container logs on failure
