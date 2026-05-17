@@ -1,6 +1,5 @@
 /** @type {import('tailwindcss').Config} */
 export default {
-  darkMode: ["class"],
   content: [
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
@@ -15,47 +14,40 @@ export default {
     },
     extend: {
       colors: {
-        border: "hsl(var(--border))",
-        input: "hsl(var(--input))",
-        ring: "hsl(var(--ring))",
-        background: "hsl(var(--background))",
-        foreground: "hsl(var(--foreground))",
-        primary: {
-          DEFAULT: "hsl(var(--primary))",
-          foreground: "hsl(var(--primary-foreground))",
-        },
-        secondary: {
-          DEFAULT: "hsl(var(--secondary))",
-          foreground: "hsl(var(--secondary-foreground))",
-        },
-        destructive: {
-          DEFAULT: "hsl(var(--destructive))",
-          foreground: "hsl(var(--destructive-foreground))",
-        },
-        muted: {
-          DEFAULT: "hsl(var(--muted))",
-          foreground: "hsl(var(--muted-foreground))",
-        },
-        accent: {
-          DEFAULT: "hsl(var(--accent))",
-          foreground: "hsl(var(--accent-foreground))",
-        },
-        popover: {
-          DEFAULT: "hsl(var(--popover))",
-          foreground: "hsl(var(--popover-foreground))",
-        },
-        card: {
-          DEFAULT: "hsl(var(--card))",
-          foreground: "hsl(var(--card-foreground))",
-        },
+        bg: "var(--bg)",
+        panel: "var(--bg-panel)",
+        "panel-hover": "var(--bg-panel-hover)",
+        sunken: "var(--bg-sunken)",
+        border: "var(--border)",
+        "border-strong": "var(--border-strong)",
+        fg: "var(--fg)",
+        "fg-mid": "var(--fg-mid)",
+        "fg-mute": "var(--fg-mute)",
+        "fg-faint": "var(--fg-faint)",
+        emerald: "var(--emerald)",
+        "emerald-dim": "var(--emerald-dim)",
+        amber: "var(--amber)",
+        "amber-dim": "var(--amber-dim)",
+        violet: "var(--violet)",
+        "violet-dim": "var(--violet-dim)",
+        sky: "var(--sky)",
+        "sky-dim": "var(--sky-dim)",
+        rose: "var(--rose)",
+        "rose-dim": "var(--rose-dim)",
+        pink: "var(--pink)",
+        "pink-dim": "var(--pink-dim)",
       },
       borderRadius: {
-        lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
+        DEFAULT: "var(--radius)",
+        sm: "3px",
+        md: "var(--radius)",
+        lg: "var(--radius-lg)",
+      },
+      fontFamily: {
+        mono: ['"JetBrains Mono"', "ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
+        sans: ['"Geist"', "ui-sans-serif", "system-ui", "-apple-system", "sans-serif"],
       },
     },
   },
   plugins: [require("tailwindcss-animate")],
 }
-
