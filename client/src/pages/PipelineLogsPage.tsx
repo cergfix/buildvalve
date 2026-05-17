@@ -1,71 +1,91 @@
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { pipelinesApi } from "../api/queries";
 import { useLogStream } from "../hooks/useSSE";
-import { ArrowLeft, Loader2, Terminal, Radio } from "lucide-react";
+import { Crumb } from "../components/ui/crumb";
+import { PageHead } from "../components/ui/page-head";
+import { SseIndicator } from "../components/ui/sse-indicator";
+import { Terminal as TerminalPanel, TerminalLine } from "../components/ui/terminal";
+import { Terminal as TerminalIcon } from "lucide-react";
 
 export function PipelineLogsPage() {
   const { projectId, pipelineName, runId, jobId } = useParams();
   const navigate = useNavigate();
 
-  // Fetch pipeline data to get the real job name (more robust than query params)
-  const { data: pipelineData } = useQuery({
-    queryKey: ["pipelineRun", projectId, runId],
-    queryFn: () => pipelinesApi.getPipeline(projectId!, runId!),
-    staleTime: 30000,
-  });
-
-  const jobName = pipelineData?.jobs.find(j => String(j.id) === String(jobId))?.name;
-
   const { logs, isConnected, isDone } = useLogStream(projectId!, jobId!, runId);
 
-  const scrollRef = useRef<HTMLPreElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    if (bodyRef.current) {
+      bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
     }
   }, [logs]);
 
+  const lines = useMemo(() => (logs ? logs.split(/\r?\n/) : []), [logs]);
+  // Don't render a trailing empty line caused by terminating newline.
+  const visibleLines = lines.length > 0 && lines[lines.length - 1] === "" ? lines.slice(0, -1) : lines;
+
+  const wsBase = (window.location.protocol === "https:" ? "wss" : "ws") + "://" + window.location.host;
+  const wsUrl = `${wsBase}/api/pipelines/${encodeURIComponent(projectId ?? "")}/runs/${runId}/jobs/${jobId}/logs`;
+
   return (
-    <div className="w-full flex flex-col h-[calc(100vh-8rem)]">
-      <div className="flex-none mb-4">
-        <button
-          onClick={() => navigate(`/project/${encodeURIComponent(projectId!)}/pipeline/${encodeURIComponent(pipelineName!)}/run/${runId}`)}
-          className="flex items-center text-sm font-medium text-slate-500 hover:text-slate-900 transition-colors mb-4"
-        >
-          <ArrowLeft size={16} className="mr-1" /> Back to Pipeline #{runId}
-        </button>
+    <div>
+      <Crumb
+        onClick={() =>
+          navigate(`/project/${encodeURIComponent(projectId!)}/pipeline/${encodeURIComponent(pipelineName!)}/run/${runId}`)
+        }
+      >
+        Back to run · #{runId}
+      </Crumb>
 
-        <div className="border-b-[1.5px] border-slate-200 pb-4">
-          <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <Terminal size={24} className="text-primary" />
-            Job Logs: {jobName ? `${jobName} (Job #${jobId})` : `Job #${jobId}`}
-            {!isDone && (
-              isConnected
-                ? <Radio size={14} className="text-green-500 ml-2" />
-                : <Loader2 size={16} className="animate-spin text-blue-500 ml-2" />
-            )}
-          </h2>
-          <p className="text-slate-500 mt-1">
-            Running in pipeline for {pipelineName}
-          </p>
-        </div>
-      </div>
+      <PageHead
+        kicker={
+          <>
+            <TerminalIcon size={12} />
+            <span>job logs</span>
+            <span className="ver">streaming via SSE</span>
+          </>
+        }
+        title={
+          <>
+            build <span className="muted">#{jobId}</span>
+          </>
+        }
+        slashed
+        sub={
+          <>
+            running in pipeline for <span className="text-fg">{pipelineName}</span> · live-tailing job output.
+            Connection retries automatically.
+          </>
+        }
+      />
 
-      <div className="flex-1 min-h-0 rounded-md shadow-blocky border-[1.5px] border-slate-200 overflow-hidden flex flex-col">
-        <pre
-          ref={scrollRef}
-          className="flex-1 overflow-y-auto bg-slate-950 text-slate-300 p-6 font-mono text-sm shadow-inner leading-relaxed whitespace-pre-wrap"
-        >
-          {!logs && !isDone ? (
-            <span className="flex items-center gap-2 text-slate-500"><Loader2 className="animate-spin" size={16} /> Fetching logs...</span>
-          ) : (
-            logs || "No logs available."
-          )}
-        </pre>
-      </div>
+      <TerminalPanel
+        label={`tty/job-${jobId}.log · utf-8`}
+        isLive={!isDone}
+        visibleLines={visibleLines.length}
+        totalLines={visibleLines.length}
+        bodyRef={bodyRef}
+      >
+        {visibleLines.length === 0 ? (
+          <span className="text-fg-mute italic">
+            {isConnected ? "waiting for output…" : "connecting…"}
+          </span>
+        ) : (
+          visibleLines.map((line, i) => (
+            <TerminalLine
+              key={i}
+              lineNo={i + 1}
+              text={line}
+              showCursor={!isDone && i === visibleLines.length - 1}
+            />
+          ))
+        )}
+      </TerminalPanel>
+
+      <SseIndicator>
+        {isDone ? "stream closed" : isConnected ? `connection: ${wsUrl}` : `connecting: ${wsUrl}`}
+      </SseIndicator>
     </div>
   );
 }
