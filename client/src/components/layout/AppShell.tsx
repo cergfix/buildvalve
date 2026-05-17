@@ -78,12 +78,20 @@ export function AppShell() {
               <GitBranch size={14} className="shrink-0 opacity-80" />
               <span className="nav-label">pipelines</span>
             </NavLink>
-            <div className="nav-item" style={{ cursor: "default", opacity: 0.7 }}>
-              <span className="nav-prefix">·</span>
-              <Terminal size={14} className="shrink-0 opacity-80" />
-              <span className="nav-label">recent runs</span>
-              {recentCount > 0 ? <span className="nav-count">{recentCount}</span> : null}
-            </div>
+            <NavLink
+              to="/recent-runs"
+              end
+              className={({ isActive }: { isActive: boolean }) => `nav-item ${isActive ? "active" : ""}`}
+            >
+              {({ isActive }: { isActive: boolean }) => (
+                <>
+                  <span className="nav-prefix">{isActive ? ">" : "·"}</span>
+                  <Terminal size={14} className="shrink-0 opacity-80" />
+                  <span className="nav-label">recent runs</span>
+                  {recentCount > 0 ? <span className="nav-count">{recentCount}</span> : null}
+                </>
+              )}
+            </NavLink>
           </div>
 
           {externalLinks && externalLinks.length > 0 && (
