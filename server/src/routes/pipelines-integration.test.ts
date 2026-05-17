@@ -19,7 +19,7 @@ vi.mock("../services/ci/index.js", () => ({
 
 import { createPipelineRouter, _resetRecentPipelinesCacheForTests } from "./pipelines.js";
 import { getCIProvider } from "../services/ci/index.js";
-import { CIProviderError } from "../services/ci/types.js";
+import { CIProviderError, type CIPipeline } from "../services/ci/types.js";
 import { MockCIProvider } from "../services/ci/mock-provider.js";
 
 function makeConfig(): AppConfig {
@@ -241,7 +241,7 @@ describe("POST /api/pipelines/trigger - per-pipeline permissions", () => {
 // ── /api/pipelines/recent ──────────────────────────────────────────────────
 
 describe("GET /api/pipelines/recent - dashboard heartbeat / sidebar count", () => {
-  function makePipeline(id: string, createdAt: string) {
+  function makePipeline(id: string, createdAt: string): CIPipeline {
     return {
       id, provider: "gitlab", project_id: "1", status: "success", ref: "main",
       sha: "abc", created_at: createdAt, updated_at: createdAt,
@@ -325,16 +325,18 @@ describe("GET /api/pipelines/:projectId/history - filtered run history", () => {
     );
 
     vi.spyOn(mockProvider, "listPipelines").mockResolvedValue([
-      { id: "1", provider: "gitlab", project_id: "1", status: "success", ref: "main", sha: "a",
+      {
+        id: "1", provider: "gitlab", project_id: "1", status: "success", ref: "main", sha: "a",
         created_at: "2025-01-01T00:00:00Z", updated_at: "2025-01-01T00:01:00Z",
-        web_url: "http://mock-gitlab.local/1/-/pipelines/1" },
-    ] as any);
+        web_url: "http://mock-gitlab.local/1/-/pipelines/1",
+      } satisfies CIPipeline,
+    ]);
 
     await handler(req, res);
 
     expect(mockProvider.listPipelines).toHaveBeenCalledWith("1", { per_page: 50, ref: "main" });
     expect(res.json).toHaveBeenCalledTimes(1);
-    expect((res.json.mock.calls[0][0] as any[])[0].id).toBe("1");
+    expect((res.json.mock.calls[0][0] as CIPipeline[])[0].id).toBe("1");
   });
 
   it("returns 403 for unauthorized user", async () => {

@@ -11,7 +11,7 @@ class MockEventSource {
   url: string;
   withCredentials: boolean;
   closed = false;
-  listeners: Map<string, ((e: any) => void)[]> = new Map();
+  listeners: Map<string, ((e: unknown) => void)[]> = new Map();
 
   constructor(url: string, init?: { withCredentials?: boolean }) {
     this.url = url;
@@ -19,7 +19,7 @@ class MockEventSource {
     MockEventSource.instances.push(this);
   }
 
-  addEventListener(name: string, cb: (e: any) => void) {
+  addEventListener(name: string, cb: (e: unknown) => void) {
     if (!this.listeners.has(name)) this.listeners.set(name, []);
     this.listeners.get(name)!.push(cb);
   }
@@ -43,7 +43,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  // @ts-expect-error
+  // @ts-expect-error — undoing the stub from beforeEach
   delete globalThis.EventSource;
 });
 

@@ -29,7 +29,7 @@ vi.mock("react-router-dom", async (importOriginal) => {
   };
 });
 
-function makeProject(extraVariables: any[] = []) {
+function makeProject(extraVariables: unknown[] = []) {
   return {
     id: "p1",
     name: "My App",
