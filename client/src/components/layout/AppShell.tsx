@@ -35,12 +35,20 @@ export function AppShell() {
   const { user, logout, isLoading, isAdmin, externalLinks } = useAuth();
   const location = useLocation();
 
-  const { data: recent } = useQuery({
+  const { data: recent, isError, isSuccess } = useQuery({
     queryKey: ["recentPipelines"],
     queryFn: pipelinesApi.getRecent,
     refetchInterval: 5000,
     enabled: !!user,
+    retry: 2,
   });
+
+  // The /api/pipelines/recent poll above doubles as a 5s heartbeat.
+  // "connected" once it has ever succeeded; "reconnecting" if it last errored
+  // (react-query keeps the previous data so we can still tell when it stops working);
+  // "connecting" otherwise.
+  const apiState: "connected" | "reconnecting" | "connecting" =
+    isError ? "reconnecting" : isSuccess ? "connected" : "connecting";
 
   if (isLoading) {
     return (
@@ -127,8 +135,15 @@ export function AppShell() {
             <span>logout</span>
           </button>
           <div className="status-row">
-            <span className="status-dot" aria-hidden="true" />
-            <span>api: connected</span>
+            <span className="status-dot" data-state={apiState} aria-hidden="true" />
+            <span>
+              api:{" "}
+              {apiState === "connected"
+                ? "connected"
+                : apiState === "reconnecting"
+                ? "reconnecting…"
+                : "connecting…"}
+            </span>
           </div>
           <div>session: {user.email}</div>
           <div>build: v{__APP_VERSION__}</div>

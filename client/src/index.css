@@ -267,6 +267,18 @@
   animation: blink 2.4s ease-in-out infinite;
 }
 
+.status-dot[data-state="reconnecting"] {
+  background: var(--amber);
+  box-shadow: 0 0 6px var(--amber);
+  animation: pipe-pulse 1s ease-in-out infinite;
+}
+
+.status-dot[data-state="connecting"] {
+  background: var(--fg-faint);
+  box-shadow: none;
+  animation: none;
+}
+
 @keyframes blink {
   0%, 50%, 100% { opacity: 1; }
   25%, 75% { opacity: 0.4; }
