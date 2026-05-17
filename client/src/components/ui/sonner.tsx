@@ -1,32 +1,42 @@
 import { Toaster as Sonner, type ToasterProps } from "sonner"
-import { CircleCheckIcon, InfoIcon, TriangleAlertIcon, OctagonXIcon, Loader2Icon } from "lucide-react"
+import { Check, Info, AlertTriangle, X, Loader2 } from "lucide-react"
 
+/**
+ * Techy-themed Sonner Toaster.
+ *
+ * Visual contract — matches the box/StatBox aesthetic elsewhere in the app:
+ *   • bg-panel background, 1px border-strong, 4px (radius) corners, no shadow
+ *   • mono font (JetBrains Mono)
+ *   • thin accent top bar via ::before, color-coded by toast type
+ *     (success=emerald, error=rose, warning=amber, info=sky, loading=violet)
+ *
+ * The actual styling lives in client/src/index.css under the `.bv-toast*`
+ * selectors — Sonner exposes a `classNames` prop on each part which we name
+ * explicitly here so we don't depend on its internal class names.
+ */
 const Toaster = ({ ...props }: ToasterProps) => {
   return (
     <Sonner
       theme="dark"
-      className="toaster group"
       icons={{
-        success: <CircleCheckIcon className="size-4" />,
-        info: <InfoIcon className="size-4" />,
-        warning: <TriangleAlertIcon className="size-4" />,
-        error: <OctagonXIcon className="size-4" />,
-        loading: <Loader2Icon className="size-4 animate-spin" />,
+        success: <Check className="size-3.5" />,
+        info: <Info className="size-3.5" />,
+        warning: <AlertTriangle className="size-3.5" />,
+        error: <X className="size-3.5" />,
+        loading: <Loader2 className="size-3.5 animate-spin" />,
       }}
-      style={
-        {
-          "--normal-bg": "var(--bg-panel)",
-          "--normal-text": "var(--fg)",
-          "--normal-border": "var(--border-strong)",
-          "--success-bg": "var(--emerald-dim)",
-          "--success-text": "var(--emerald)",
-          "--success-border": "var(--emerald)",
-          "--error-bg": "var(--rose-dim)",
-          "--error-text": "var(--rose)",
-          "--error-border": "var(--rose)",
-          "--border-radius": "var(--radius)",
-        } as React.CSSProperties
-      }
+      toastOptions={{
+        unstyled: true,
+        classNames: {
+          toast: "bv-toast",
+          title: "bv-toast-title",
+          description: "bv-toast-description",
+          icon: "bv-toast-icon",
+          actionButton: "bv-toast-action",
+          cancelButton: "bv-toast-cancel",
+          closeButton: "bv-toast-close",
+        },
+      }}
       {...props}
     />
   )

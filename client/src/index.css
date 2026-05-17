@@ -950,7 +950,10 @@
 }
 
 .var-input {
-  width: 100%;
+  /* --field-width is set by PipelineLaunchPage based on the longest displayed value;
+     fall back to 100% if it's not provided. max-width caps it to the card's content area. */
+  width: var(--field-width, 100%);
+  max-width: 100%;
   background: var(--bg-sunken);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -1012,8 +1015,9 @@
 
 .select {
   position: relative;
-  width: 100%;
-  max-width: 360px;
+  /* Falls back to a narrower default outside the launch form (e.g. inline filters). */
+  width: var(--field-width, 100%);
+  max-width: 100%;
 }
 
 .select[data-accent="emerald"] { --_accent: var(--emerald); --_accent-dim: var(--emerald-dim); }
@@ -1668,6 +1672,98 @@
 @keyframes cursor-blink {
   0%, 50% { opacity: 1; }
   50.01%, 100% { opacity: 0; }
+}
+
+/* ─────────────────────────────────────────────────────────────────
+ * Toasts (Sonner) — techy aesthetic, matches StatBox / box patterns
+ * ─────────────────────────────────────────────────────────────── */
+
+.bv-toast {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 10px;
+  row-gap: 2px;
+  align-items: start;
+  padding: 12px 14px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.45;
+  min-width: 260px;
+  max-width: 420px;
+  overflow: hidden;
+}
+
+.bv-toast::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: var(--_tone, var(--fg-mute));
+  box-shadow: 0 0 10px var(--_tone, transparent);
+}
+
+.bv-toast[data-type="success"] { --_tone: var(--emerald); border-color: rgba(52, 211, 153, 0.32); }
+.bv-toast[data-type="error"]   { --_tone: var(--rose);    border-color: rgba(251, 113, 133, 0.32); }
+.bv-toast[data-type="warning"] { --_tone: var(--amber);   border-color: rgba(251, 191, 36, 0.32); }
+.bv-toast[data-type="info"]    { --_tone: var(--sky);     border-color: rgba(56, 189, 248, 0.32); }
+.bv-toast[data-type="loading"] { --_tone: var(--violet);  border-color: rgba(167, 139, 250, 0.32); }
+
+.bv-toast-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--_tone, var(--fg-mute));
+  margin-top: 1px;
+}
+
+.bv-toast-title {
+  grid-column: 2;
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: var(--fg);
+}
+
+.bv-toast-description {
+  grid-column: 2;
+  color: var(--fg-mid);
+  font-size: 12px;
+}
+
+.bv-toast-action,
+.bv-toast-cancel {
+  grid-column: 2;
+  margin-top: 8px;
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  border-radius: var(--radius);
+  border: 1px solid var(--_tone, var(--border-strong));
+  background: transparent;
+  color: var(--_tone, var(--fg));
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.bv-toast-action:hover,
+.bv-toast-cancel:hover {
+  background: var(--bg-panel-hover);
+}
+
+.bv-toast-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  color: var(--fg-mute);
 }
 
 /* ─────────────────────────────────────────────────────────────────

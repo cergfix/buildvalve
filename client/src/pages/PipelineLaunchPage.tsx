@@ -65,6 +65,23 @@ export function PipelineLaunchPage() {
     return pipeline.variables.filter((vc) => needsSatisfied(vc, pipeline.variables, vars));
   }, [pipeline, vars]);
 
+  /**
+   * Auto-fit input width to the longest displayed value across the form so all
+   * inputs share one comfortable width instead of stretching to the card edge.
+   * Considers default values, current user values, and select/radio options.
+   */
+  const fieldWidthCh = useMemo(() => {
+    let maxLen = 0;
+    for (const vc of visibleVars) {
+      const candidates = [vc.value ?? "", vars[vc.key] ?? "", ...(vc.options ?? [])];
+      for (const c of candidates) {
+        if (c.length > maxLen) maxLen = c.length;
+      }
+    }
+    // Clamp: floor at 24ch (~ "us-east-1" + padding) and ceiling at 60ch.
+    return Math.min(60, Math.max(24, maxLen + 4));
+  }, [visibleVars, vars]);
+
   if (!project || !pipeline) {
     return <div className="text-fg-mute italic">Pipeline not found.</div>;
   }
@@ -140,7 +157,7 @@ export function PipelineLaunchPage() {
 
       <SectionHead color="amber">parameters</SectionHead>
 
-      <div className="var-grid">
+      <div className="var-grid" style={{ ["--field-width" as string]: `${fieldWidthCh}ch` }}>
         {pipeline.variables.length === 0 ? (
           <p className="italic text-fg-mute">No variables configured for this pipeline.</p>
         ) : (
