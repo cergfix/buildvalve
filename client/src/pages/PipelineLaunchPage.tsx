@@ -1,13 +1,24 @@
 import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { Play } from "lucide-react";
+import { toast } from "sonner";
 import { useAuth } from "../contexts/AuthContext";
 import { pipelinesApi } from "../api/queries";
-
-import { Button } from "../components/ui/button";
-import { VariableField } from "../components/ui/variable-field";
-import { Play, ArrowLeft } from "lucide-react";
-import { toast } from "sonner";
 import type { VariableConfig } from "../../../server/src/types";
+import { Crumb } from "../components/ui/crumb";
+import { PageHead } from "../components/ui/page-head";
+import { SectionHead } from "../components/ui/section-head";
+import { Chip } from "../components/ui/chip";
+import { Btn } from "../components/ui/btn";
+import { VariableField } from "../components/ui/variable-field";
+
+function kebab(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, "-")
+    .replace(/[^a-z0-9-]/g, "");
+}
 
 export function PipelineLaunchPage() {
   const { projectId, pipelineName } = useParams();
@@ -19,7 +30,7 @@ export function PipelineLaunchPage() {
 
   const [vars, setVars] = useState<Record<string, string>>(() => {
     const initial: Record<string, string> = {};
-    pipeline?.variables.forEach(v => {
+    pipeline?.variables.forEach((v) => {
       initial[v.key] = v.value;
     });
     return initial;
@@ -28,30 +39,34 @@ export function PipelineLaunchPage() {
   const [isTriggering, setIsTriggering] = useState(false);
 
   if (!project || !pipeline) {
-    return <div className="p-8">Pipeline not found.</div>;
+    return <div className="text-fg-mute italic">Pipeline not found.</div>;
   }
 
   const handleVarChange = (key: string, val: string) => {
-    setVars(prev => ({ ...prev, [key]: val }));
+    setVars((prev) => ({ ...prev, [key]: val }));
   };
 
   const onTrigger = async () => {
     setIsTriggering(true);
     try {
       const response = await pipelinesApi.trigger(project.id, pipeline.name, vars);
-      toast.success("Pipeline triggered successfully!");
-      navigate(`/project/${encodeURIComponent(project.id)}/pipeline/${encodeURIComponent(pipeline.name)}/run/${response.id}`);
+      toast.success("Pipeline triggered.");
+      navigate(
+        `/project/${encodeURIComponent(project.id)}/pipeline/${encodeURIComponent(pipeline.name)}/run/${response.id}`
+      );
     } catch (err: unknown) {
       const apiErr = err as { status?: number; message?: string };
       if (apiErr.status === 401 || apiErr.status === 403) {
-        toast.error("CI Auth Failed", {
-          description: "The backend service account token is invalid, missing, or lacks permissions.",
-          duration: 8000
+        toast.error("CI auth failed", {
+          description:
+            "The backend service account token is invalid, missing, or lacks permissions.",
+          duration: 8000,
         });
       } else if (apiErr.status === 404) {
-        toast.error("Project Not Found", {
-          description: "Cannot find the project. Ensure the service account has the required access.",
-          duration: 8000
+        toast.error("Project not found", {
+          description:
+            "Cannot find the project. Ensure the service account has the required access.",
+          duration: 8000,
         });
       } else {
         toast.error("Failed to trigger pipeline", { description: apiErr.message });
@@ -61,49 +76,61 @@ export function PipelineLaunchPage() {
     }
   };
 
+  const provider = (pipeline as unknown as { providerType?: string }).providerType ?? project.provider;
+
   return (
-    <div className="w-full space-y-4">
-      <button
-        onClick={() => navigate("/")}
-        className="flex items-center text-sm font-medium text-slate-500 hover:text-slate-900 dark:hover:text-slate-200 transition-colors"
-      >
-        <ArrowLeft size={16} className="mr-1" /> Back to Pipelines
-      </button>
+    <div>
+      <Crumb onClick={() => navigate("/")}>Back to pipelines</Crumb>
+      <PageHead
+        kicker={
+          <>
+            <span>launch</span>
+            <span>·</span>
+            <span>{project.name}</span>
+            <span>·</span>
+            <span>provider: {provider}</span>
+          </>
+        }
+        title={kebab(pipeline.name)}
+        slashed
+        sub={
+          <>
+            Configure parameters for ref{" "}
+            <Chip tone="sky">{pipeline.ref}</Chip>. Locked values are injected server-side and never sent to the
+            browser.
+          </>
+        }
+      />
 
-      <div className="space-y-6 pt-2">
-        <div className="space-y-1">
-          <h2 className="text-2xl font-bold tracking-tight">{pipeline.name}</h2>
-          <p className="text-sm text-slate-500">
-            Configure parameters for ref: <code>{pipeline.ref}</code>
-          </p>
-        </div>
+      <SectionHead color="amber">parameters</SectionHead>
 
-        <div className="space-y-4 max-w-2xl">
-          {pipeline.variables.length === 0 ? (
-            <p className="text-slate-500 italic text-sm">No variables configured for this pipeline.</p>
-          ) : (
-            pipeline.variables.map((vc: VariableConfig) => (
-              <VariableField
-                key={vc.key}
-                config={vc}
-                value={vars[vc.key] ?? ""}
-                onChange={(val) => handleVarChange(vc.key, val)}
-              />
-            ))
-          )}
-        </div>
+      <div className="var-grid">
+        {pipeline.variables.length === 0 ? (
+          <p className="italic text-fg-mute">No variables configured for this pipeline.</p>
+        ) : (
+          pipeline.variables.map((vc: VariableConfig, idx: number) => (
+            <VariableField
+              key={vc.key}
+              config={vc}
+              value={vars[vc.key] ?? ""}
+              onChange={(val) => handleVarChange(vc.key, val)}
+              index={idx}
+            />
+          ))
+        )}
+      </div>
 
-        <div className="flex justify-start pt-2">
-          <Button
-            className="font-bold text-xs px-3"
-            size="sm"
-            onClick={onTrigger}
-            disabled={isTriggering}
-          >
-            <Play size={14} className="mr-1 inline-block" />
-            {isTriggering ? "Executing..." : "Launch"}
-          </Button>
-        </div>
+      <div className="action-row">
+        <Btn
+          variant="primary"
+          size="lg"
+          icon={<Play size={14} />}
+          onClick={onTrigger}
+          disabled={isTriggering}
+        >
+          {isTriggering ? "launching…" : "launch pipeline"}
+        </Btn>
+        <Btn variant="ghost" onClick={() => navigate("/")}>cancel</Btn>
       </div>
     </div>
   );
