@@ -38,8 +38,8 @@ function kebab(name: string): string {
   return name
     .trim()
     .toLowerCase()
-    .replace(/[\s_]+/g, "-")
-    .replace(/[^a-z0-9-]/g, "");
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 export function PipelineLaunchPage() {

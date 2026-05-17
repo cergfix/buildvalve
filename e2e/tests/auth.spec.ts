@@ -4,7 +4,8 @@ import { loginAsAlice, loginAsMockUser, expectDashboardLoaded } from "./fixtures
 test.describe("login page", () => {
   test("renders brand, both providers and the 'or' separator", async ({ page }) => {
     await page.goto("/login");
-    await expect(page.getByText("BUILDVALVE")).toBeVisible();
+    // Exact match: avoids the "© 2026 BuildValve contributors" copyright copy.
+    await expect(page.getByText("BUILDVALVE", { exact: true })).toBeVisible();
     await expect(page.locator('input[type="email"]')).toBeVisible();
     await expect(page.locator('input[type="password"]')).toBeVisible();
     await expect(page.getByRole("button", { name: /sign in with mock login/i })).toBeVisible();
@@ -27,7 +28,8 @@ test.describe("login page", () => {
   test("mock provider button signs in as test@test.com", async ({ page }) => {
     await loginAsMockUser(page);
     await page.goto("/profile");
-    await expect(page.getByText("test@test.com")).toBeVisible();
+    // The sidebar footer also shows "session: test@test.com" — scope to the identity card.
+    await expect(page.getByText("test@test.com", { exact: true })).toBeVisible();
   });
 });
 

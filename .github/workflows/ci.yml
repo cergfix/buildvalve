@@ -800,16 +800,18 @@ jobs:
           echo "OK: Pipelines endpoint works"
 
           echo "--- Trigger ---"
+          # Project 1's Deploy pipeline has no variables — use frontend/Build & Deploy,
+          # which exposes ENVIRONMENT/DRY_RUN, to exercise both happy + invalid paths.
           TRIGGER=$(curl -sf -b "$CJ" -X POST http://localhost:3000/api/pipelines/trigger \
             -H 'Content-Type: application/json' \
-            -d '{"projectId":"1","pipelineName":"Deploy","variables":{"ENVIRONMENT":"staging"}}')
+            -d '{"projectId":"frontend","pipelineName":"Build & Deploy","variables":{"ENVIRONMENT":"staging","DRY_RUN":"true"}}')
           echo "$TRIGGER" | grep -q '"id"'
           echo "OK: Trigger works on api-only image"
 
           echo "--- Invalid select option rejected ---"
           CODE=$(curl -s -b "$CJ" -o /dev/null -w '%{http_code}' -X POST http://localhost:3000/api/pipelines/trigger \
             -H 'Content-Type: application/json' \
-            -d '{"projectId":"1","pipelineName":"Deploy","variables":{"ENVIRONMENT":"invalid"}}')
+            -d '{"projectId":"frontend","pipelineName":"Build & Deploy","variables":{"ENVIRONMENT":"invalid","DRY_RUN":"true"}}')
           [ "$CODE" = "400" ] || { echo "FAIL: expected 400, got $CODE"; exit 1; }
           echo "OK: Invalid select option rejected"
 

@@ -18,9 +18,10 @@ test("shows projects from all three providers + their badges", async ({ page }) 
 
 test("renders the pipeline names from config", async ({ page }) => {
   await page.goto("/");
-  for (const name of ["Deploy", "Build & Deploy", "Release"]) {
-    await expect(page.getByText(name)).toBeVisible();
-  }
+  // Exact match — "Deploy" otherwise also matches "Deploy Prod".
+  await expect(page.getByText("Deploy", { exact: true })).toBeVisible();
+  await expect(page.getByText("Build & Deploy", { exact: true })).toBeVisible();
+  await expect(page.getByText("Release", { exact: true })).toBeVisible();
 });
 
 test("search filters projects + pipelines client-side", async ({ page }) => {

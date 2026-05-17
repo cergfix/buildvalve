@@ -12,7 +12,8 @@ test.describe("PipelineLaunchPage — controls", () => {
   });
 
   test("renders the kebab title with emerald slash + the ref chip", async ({ page }) => {
-    await expect(page.getByRole("heading", { name: /build-deploy/i })).toBeVisible();
+    // The kebab of "Build & Deploy" collapses to "build--deploy"; allow any joiner chars.
+    await expect(page.getByRole("heading", { name: /build.*deploy/i })).toBeVisible();
     await expect(page.locator(".chip", { hasText: "main" }).first()).toBeVisible();
   });
 
