@@ -52,14 +52,14 @@ function computeStages(jobs: CIJobDetail[]): StageInfo[] {
 }
 
 function useElapsed(startedIso: string | undefined, running: boolean): string {
-  const [, setTick] = useState(0);
+  const [now, setNow] = useState<number>(() => Date.now());
   useEffect(() => {
     if (!running) return;
-    const id = setInterval(() => setTick((t) => t + 1), 1000);
+    const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, [running]);
   if (!startedIso) return "just now";
-  const s = (Date.now() - new Date(startedIso).getTime()) / 1000;
+  const s = (now - new Date(startedIso).getTime()) / 1000;
   return formatDuration(Math.max(0, s)) + " ago";
 }
 
