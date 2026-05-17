@@ -129,17 +129,16 @@
   gap: 8px;
   padding: 0 6px 22px;
   border-bottom: 1px dashed var(--border);
+}
+
+.brand-wordmark {
   color: var(--fg);
   text-decoration: none;
   transition: color 0.12s;
 }
 
-.brand:hover {
+.brand-wordmark:hover {
   color: var(--emerald);
-}
-
-.brand:hover .brand-dot {
-  box-shadow: 0 0 0 2px rgba(52, 211, 153, 0.32), 0 0 12px rgba(52, 211, 153, 0.45);
 }
 
 .brand-dot {

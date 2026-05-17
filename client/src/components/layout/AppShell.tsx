@@ -69,11 +69,13 @@ export function AppShell() {
     <div className="app">
       <aside className="sidebar">
         <div>
-          <Link to="/" className="brand" aria-label="back to pipelines">
+          <div className="brand">
             <span className="brand-dot" aria-hidden="true" />
-            <span>BUILDVALVE</span>
+            <Link to="/" className="brand-wordmark" aria-label="back to pipelines">
+              BUILDVALVE
+            </Link>
             <span className="ver">v{__APP_VERSION__}</span>
-          </Link>
+          </div>
 
           <div className="nav-group">
             <div className="nav-heading">workspace</div>
