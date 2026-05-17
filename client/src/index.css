@@ -375,8 +375,7 @@
   color: var(--fg);
 }
 
-.section-head::after {
-  content: "";
+.section-head .section-rule {
   flex: 1;
   border-top: 1px solid var(--border-strong);
 }
@@ -386,6 +385,27 @@
 .section-head.c-violet  { color: var(--violet); }
 .section-head.c-sky     { color: var(--sky); }
 .section-head.c-rose    { color: var(--rose); }
+
+.section-head-dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--fg-mute);
+  border-radius: 3px;
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+
+.section-head-dismiss:hover {
+  color: var(--fg);
+  border-color: var(--border-strong);
+  background: var(--bg-panel);
+}
 
 /* ─────────────────────────────────────────────────────────────────
  * Search bar
@@ -1777,7 +1797,7 @@
   to   { opacity: 1; }
 }
 
-.section-head.flow-head::after {
+.section-head.flow-head .section-rule {
   transform-origin: left;
   animation: rule-grow 0.55s cubic-bezier(.2, .8, .3, 1) 0s both;
 }
@@ -1888,7 +1908,7 @@
   .flow-card::after,
   .flow-card .flow-num,
   .flow-grid > .flow-card,
-  .section-head.flow-head::after {
+  .section-head.flow-head .section-rule {
     animation: none !important;
   }
 }

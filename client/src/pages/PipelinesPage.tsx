@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Search, Play, History } from "lucide-react";
@@ -41,10 +41,26 @@ function relativeTime(iso?: string | null): string {
   return new Date(iso).toLocaleDateString();
 }
 
+const FLOW_DISMISSED_KEY = "buildvalve.flowPanelDismissed";
+
 export function PipelinesPage() {
   const { projects } = useAuth();
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
+  const [flowDismissed, setFlowDismissed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(FLOW_DISMISSED_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      if (flowDismissed) localStorage.setItem(FLOW_DISMISSED_KEY, "1");
+      else localStorage.removeItem(FLOW_DISMISSED_KEY);
+    } catch { /* ignore — private mode etc. */ }
+  }, [flowDismissed]);
 
   const { data: recentData } = useQuery({
     queryKey: ["recentPipelines"],
@@ -105,10 +121,19 @@ export function PipelinesPage() {
         </span>
       </div>
 
-      <SectionHead color="emerald" flowHead>
-        how to launch
-      </SectionHead>
-      <FlowDiagram />
+      {!flowDismissed && (
+        <>
+          <SectionHead
+            color="emerald"
+            flowHead
+            onDismiss={() => setFlowDismissed(true)}
+            dismissLabel="hide how-to-launch"
+          >
+            how to launch
+          </SectionHead>
+          <FlowDiagram />
+        </>
+      )}
 
       <SectionHead>projects — {totalAccessible} accessible</SectionHead>
 
