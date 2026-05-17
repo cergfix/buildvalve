@@ -129,7 +129,10 @@ export function PipelineLaunchPage() {
     }
   };
 
-  const provider = (pipeline as unknown as { providerType?: string }).providerType ?? project.provider;
+  const provider =
+    (pipeline as unknown as { providerType?: string }).providerType ??
+    (project as unknown as { providerType?: string }).providerType ??
+    project.provider;
 
   return (
     <div>

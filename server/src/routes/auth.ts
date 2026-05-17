@@ -31,6 +31,9 @@ export function createAuthRouter(config: AppConfig, providers: AuthProvider[]): 
     const user = req.session.user!;
     const projects = getAllowedProjects(user, config).map((p) => ({
       ...p,
+      // Resolve the project's CI provider type ("gitlab" / "github-actions" / "circleci")
+      // from its name; the client uses this for provider chip color + label.
+      providerType: config.ci_providers.find((cp) => cp.name === p.provider)?.type,
       pipelines: p.pipelines
         .filter((pl) => isPipelineAuthorized(user, pl))
         .map((pl) => ({

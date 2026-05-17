@@ -116,7 +116,11 @@ export function PipelineRunPage() {
     return <span>started {elapsed}</span>;
   })();
 
-  const provider = pipeline.provider ?? project?.provider ?? "—";
+  const provider =
+    pipeline.provider ??
+    (project as unknown as { providerType?: string } | undefined)?.providerType ??
+    project?.provider ??
+    "—";
 
   return (
     <div>

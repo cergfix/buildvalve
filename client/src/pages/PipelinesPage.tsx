@@ -152,7 +152,7 @@ export function PipelinesPage() {
             <section key={project.id} className="project">
               <div className="project-head">
                 <h2 className="project-name">{project.name}</h2>
-                <ProviderChip type={project.provider} />
+                <ProviderChip type={(project as unknown as { providerType?: string }).providerType ?? project.provider} />
               </div>
               <div className="project-desc">
                 {project.description ? <span>{project.description}</span> : null}

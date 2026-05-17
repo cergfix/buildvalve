@@ -99,7 +99,10 @@ export function PipelineHistoryPage() {
     return <div className="text-fg-mute italic">Pipeline not found.</div>;
   }
 
-  const provider = (pipelineConfig as unknown as { providerType?: string }).providerType ?? project.provider;
+  const provider =
+    (pipelineConfig as unknown as { providerType?: string }).providerType ??
+    (project as unknown as { providerType?: string }).providerType ??
+    project.provider;
 
   return (
     <div>
