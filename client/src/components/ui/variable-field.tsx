@@ -1,68 +1,67 @@
-import { Input } from "./input";
-import { Label } from "./label";
 import type { VariableConfig } from "../../../../server/src/types";
+import { TechSelect } from "./tech-select";
+
+type Accent = "emerald" | "amber" | "violet" | "sky";
+const ACCENT_CYCLE: Accent[] = ["emerald", "amber", "violet", "sky"];
 
 interface VariableFieldProps {
   config: VariableConfig;
   value: string;
   onChange: (value: string) => void;
-  compact?: boolean;
+  index: number;
 }
 
-export function VariableField({ config, value, onChange, compact }: VariableFieldProps) {
+export function VariableField({ config, value, onChange, index }: VariableFieldProps) {
+  const accent = ACCENT_CYCLE[index % ACCENT_CYCLE.length];
   const isLocked = config.locked;
   const fieldType = config.type ?? "text";
 
-  const lockedClass = compact
-    ? "bg-slate-100 text-slate-500 shadow-none border-slate-200"
-    : "bg-slate-100 dark:bg-slate-800/80 text-slate-500 dark:text-slate-300 disabled:opacity-100 shadow-none border-slate-200 dark:border-slate-700 h-8 text-xs max-w-sm";
-  const normalClass = compact
-    ? "shadow-sm border-slate-300"
-    : "shadow-sm border-slate-300 dark:border-slate-600 h-8 text-xs max-w-sm";
-
   return (
-    <div className={compact ? "space-y-1" : "space-y-1.5"}>
-      <Label className={compact ? "font-semibold" : "font-semibold text-sm"}>
-        {config.key}
-        {isLocked && <span className="text-red-500 text-[10px] font-normal ml-2 uppercase tracking-wide">(Locked)</span>}
-      </Label>
-      {config.description && <p className="text-xs text-slate-500">{config.description}</p>}
+    <div className="var-field" data-accent={accent}>
+      <div className="var-num">{String(index + 1).padStart(2, "0")}</div>
+      <div className="var-key">
+        <span>{config.key}</span>
+        {isLocked && <span className="var-locked">[ locked ]</span>}
+        {!isLocked && config.required && <span className="var-required">required</span>}
+      </div>
+      {isLocked ? (
+        <div className="var-desc">
+          Locked by config. Set automatically based on target ref.
+        </div>
+      ) : (
+        config.description && <div className="var-desc">{config.description}</div>
+      )}
 
       {fieldType === "select" && config.options ? (
-        <select
+        <TechSelect
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={onChange}
+          options={config.options}
+          accent={accent}
           disabled={isLocked}
-          className={`flex w-full rounded-md border px-3 py-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${isLocked ? lockedClass : normalClass} ${compact ? "" : "max-w-sm h-8 text-xs"}`}
-        >
-          {!config.required && <option value="">— select —</option>}
-          {config.options.map((opt) => (
-            <option key={opt} value={opt}>{opt}</option>
-          ))}
-        </select>
+          allowEmpty={!config.required}
+        />
       ) : fieldType === "radio" && config.options ? (
-        <div className={`flex flex-wrap gap-3 ${compact ? "pt-1" : "pt-0.5"}`}>
+        <div className="var-options">
           {config.options.map((opt) => (
-            <label key={opt} className={`flex items-center gap-1.5 cursor-pointer ${isLocked ? "opacity-50 cursor-not-allowed" : ""}`}>
-              <input
-                type="radio"
-                name={config.key}
-                value={opt}
-                checked={value === opt}
-                onChange={() => onChange(opt)}
-                disabled={isLocked}
-                className="accent-primary h-3.5 w-3.5"
-              />
-              <span className="text-sm text-slate-700 dark:text-slate-300">{opt}</span>
-            </label>
+            <button
+              key={opt}
+              type="button"
+              className={`var-pill ${value === opt ? "selected" : ""}`}
+              disabled={isLocked}
+              onClick={() => onChange(opt)}
+            >
+              {opt}
+            </button>
           ))}
         </div>
       ) : (
-        <Input
+        <input
+          className="var-input"
           value={value}
           onChange={(e) => onChange(e.target.value)}
           disabled={isLocked}
-          className={isLocked ? lockedClass : normalClass}
+          placeholder=""
         />
       )}
     </div>
