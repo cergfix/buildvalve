@@ -21,7 +21,7 @@ export function VariableField({ config, value, onChange, index }: VariableFieldP
       <div className="var-num">{String(index + 1).padStart(2, "0")}</div>
       <div className="var-key">
         <span>{config.key}</span>
-        {isLocked && <span className="var-locked">[ locked ]</span>}
+        {isLocked && <span className="var-locked">locked</span>}
         {!isLocked && config.required && <span className="var-required">required</span>}
       </div>
       {isLocked ? (
