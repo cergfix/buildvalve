@@ -616,7 +616,7 @@ jobs:
                   pass_input.send_keys("wrongpassword")
                   submit_btn.click()
 
-                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(@class, 'text-red')]")))
+                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(@class, 'text-rose') or contains(@class, 'text-red')]")))
                   print("OK: Error message shown for wrong password")
               except Exception as e:
                   fail(f"Local login error test: {e}")
@@ -726,14 +726,15 @@ jobs:
               # ── Navigate to pipeline launch ─────────────────────────
               print("--- Pipeline launch page ---")
               try:
+                  # v0.4.0 redesign uses lowercase "launch" on the pipeline rows.
                   launch_link = wait.until(EC.element_to_be_clickable(
-                      (By.XPATH, "//a[contains(text(), 'Launch')] | //button[contains(text(), 'Launch')]")))
+                      (By.XPATH, "//a[contains(translate(text(), 'L', 'l'), 'launch')] | //button[contains(translate(text(), 'L', 'l'), 'launch')]")))
                   launch_link.click()
                   wait.until(EC.url_contains("/pipeline/"))
                   print(f"Launch page URL: {driver.current_url}")
 
                   wait.until(EC.presence_of_element_located(
-                      (By.XPATH, "//button[contains(text(), 'Launch')] | //*[contains(text(), 'Deploy')]")))
+                      (By.XPATH, "//button[contains(translate(text(), 'L', 'l'), 'launch')] | //*[contains(text(), 'Deploy')]")))
                   print("OK: Pipeline launch page loaded")
               except Exception as e:
                   fail(f"Pipeline launch page: {e}")
@@ -743,42 +744,38 @@ jobs:
               try:
                   # Navigate to the GitHub project's Build & Deploy launch page (has select + radio)
                   driver.get(f"{BASE}/project/frontend/pipeline/Build%20%26%20Deploy")
-                  wait.until(EC.presence_of_element_located((By.XPATH, "//button[contains(text(), 'Launch')]")))
+                  wait.until(EC.presence_of_element_located((By.XPATH, "//button[contains(translate(text(), 'L', 'l'), 'launch')]")))
 
-                  # Verify select dropdown exists for ENVIRONMENT
-                  select_el = wait.until(EC.presence_of_element_located((By.XPATH, "//select")))
-                  print(f"OK: Select dropdown found")
-
-                  # Verify select has the expected options
-                  from selenium.webdriver.support.ui import Select
-                  select = Select(select_el)
-                  option_texts = [o.text for o in select.options]
-                  assert "staging" in option_texts, f"'staging' not in options: {option_texts}"
-                  assert "production" in option_texts, f"'production' not in options: {option_texts}"
+                  # v0.4.0 redesign uses a custom TechSelect listbox (no native <select>).
+                  # The trigger renders as a .select-trigger button; clicking opens .select-menu with .select-option items.
+                  trigger = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, ".select-trigger")))
+                  print("OK: TechSelect trigger found")
+                  trigger.click()
+                  menu = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".select-menu")))
+                  option_texts = [o.text.strip() for o in menu.find_elements(By.CSS_SELECTOR, ".select-option")]
+                  assert any("staging" in t for t in option_texts), f"'staging' not in options: {option_texts}"
+                  assert any("production" in t for t in option_texts), f"'production' not in options: {option_texts}"
                   print(f"OK: Select options present: {option_texts}")
 
-                  # Verify radio buttons exist for DRY_RUN
-                  radios = driver.find_elements(By.XPATH, "//input[@type='radio']")
-                  assert len(radios) >= 2, f"Expected at least 2 radio buttons, found {len(radios)}"
-                  print(f"OK: Radio buttons found ({len(radios)})")
+                  # v0.4.0 redesign uses .var-pill buttons instead of native radio inputs.
+                  pills = driver.find_elements(By.CSS_SELECTOR, ".var-pill")
+                  assert len(pills) >= 2, f"Expected at least 2 pill buttons, found {len(pills)}"
+                  pill_labels = [p.text.strip() for p in pills]
+                  assert "true" in pill_labels, f"'true' not in pill labels: {pill_labels}"
+                  assert "false" in pill_labels, f"'false' not in pill labels: {pill_labels}"
+                  print(f"OK: Radio pills found ({len(pills)}) with labels: {pill_labels}")
 
-                  # Verify radio labels
-                  radio_labels = driver.find_elements(By.XPATH, "//input[@type='radio']/ancestor::label")
-                  label_texts = [l.text for l in radio_labels]
-                  assert "true" in label_texts, f"'true' not in radio labels: {label_texts}"
-                  assert "false" in label_texts, f"'false' not in radio labels: {label_texts}"
-                  print(f"OK: Radio labels present: {label_texts}")
-
-                  # Change select value
-                  select.select_by_visible_text("production")
-                  assert select.first_selected_option.text == "production"
+                  # Select an option from the open listbox
+                  prod_option = next(o for o in menu.find_elements(By.CSS_SELECTOR, ".select-option") if "production" in o.text)
+                  prod_option.click()
+                  wait.until(lambda d: "production" in d.find_element(By.CSS_SELECTOR, ".select-trigger").text)
                   print("OK: Select value changed to 'production'")
 
-                  # Click a radio button
-                  false_radio = driver.find_element(By.XPATH, "//input[@type='radio'][@value='false']")
-                  false_radio.click()
-                  assert false_radio.is_selected()
-                  print("OK: Radio button 'false' selected")
+                  # Click the 'false' pill and verify it is marked selected
+                  false_pill = next(p for p in pills if p.text.strip() == "false")
+                  false_pill.click()
+                  wait.until(lambda d: "selected" in next(p for p in d.find_elements(By.CSS_SELECTOR, ".var-pill") if p.text.strip() == "false").get_attribute("class"))
+                  print("OK: Radio pill 'false' selected")
               except Exception as e:
                   fail(f"Select/radio variable types: {e}")
 
@@ -803,13 +800,14 @@ jobs:
                   # Navigate directly to the Deploy launch page to avoid stale elements
                   driver.get(f"{BASE}/project/1/pipeline/Deploy")
                   trigger_btn = wait.until(EC.element_to_be_clickable(
-                      (By.XPATH, "//button[contains(text(), 'Launch')]")))
+                      (By.XPATH, "//button[contains(translate(text(), 'L', 'l'), 'launch')]")))
                   trigger_btn.click()
                   wait.until(EC.url_contains("/run/"))
                   print(f"Pipeline run URL: {driver.current_url}")
 
+                  # v0.4.0 redesign renders the jobs section as "jobs" / "jobs · live" section head.
                   wait.until(EC.presence_of_element_located(
-                      (By.XPATH, "//*[contains(text(), 'Pipeline Jobs')]")))
+                      (By.XPATH, "//*[contains(translate(text(), 'JOBS', 'jobs'), 'jobs')]")))
                   print("OK: Pipeline run page loaded with jobs")
               except Exception as e:
                   fail(f"Trigger pipeline: {e}")
@@ -817,9 +815,9 @@ jobs:
               # ── SSE live streaming indicator ─────────────────────────
               print("--- SSE streaming indicator ---")
               try:
-                  # The pipeline run page should show either "Live streaming via SSE" or "Connecting..."
+                  # v0.4.0 shows "live streaming via SSE" or "connecting…" in the SSE indicator.
                   wait.until(EC.presence_of_element_located(
-                      (By.XPATH, "//*[contains(text(), 'Live streaming') or contains(text(), 'Connecting')]")))
+                      (By.XPATH, "//*[contains(translate(text(), 'LCS', 'lcs'), 'live streaming') or contains(translate(text(), 'C', 'c'), 'connecting')]")))
                   print("OK: SSE streaming indicator visible on pipeline run page")
               except Exception as e:
                   fail(f"SSE streaming indicator: {e}")
@@ -846,8 +844,9 @@ jobs:
               print("--- Logout ---")
               try:
                   driver.get(BASE)
-                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Pipelines')]")))
-                  logout_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Logout')]")))
+                  # v0.4.0 sidebar uses lowercase "pipelines" / "logout".
+                  wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(translate(text(), 'P', 'p'), 'pipelines')]")))
+                  logout_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(translate(., 'LOGT', 'logt'), 'logout')]")))
                   logout_btn.click()
                   wait.until(EC.url_contains("/login"))
                   print("OK: Logged out and redirected to login page")
@@ -1203,11 +1202,13 @@ jobs:
               print("--- Launch page with select ---")
               try:
                   driver.get(f"{CLIENT}/project/1/pipeline/Deploy")
-                  select_el = wait.until(EC.presence_of_element_located((By.XPATH, "//select")))
-                  from selenium.webdriver.support.ui import Select
-                  select = Select(select_el)
-                  option_texts = [o.text for o in select.options]
-                  assert "staging" in option_texts and "production" in option_texts, f"Options: {option_texts}"
+                  # v0.4.0 redesign uses a custom TechSelect (no native <select>).
+                  trigger = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, ".select-trigger")))
+                  trigger.click()
+                  menu = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".select-menu")))
+                  option_texts = [o.text.strip() for o in menu.find_elements(By.CSS_SELECTOR, ".select-option")]
+                  assert any("staging" in t for t in option_texts) and any("production" in t for t in option_texts), \
+                      f"Options: {option_texts}"
                   print(f"OK: Select dropdown works in split deployment: {option_texts}")
               except Exception as e:
                   fail(f"Launch page select: {e}")
