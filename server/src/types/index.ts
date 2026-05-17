@@ -42,6 +42,15 @@ export interface VariableConfig {
   description?: string;
   type?: "text" | "select" | "radio"; // default: "text"
   options?: string[]; // choices for select/radio
+  /**
+   * Conditional visibility. Map of other-variable-key → required value(s).
+   * The variable is only shown / sent to the CI provider when ALL listed
+   * conditions are satisfied (logical AND between keys, any-of for list
+   * values). A missing referenced key is treated as not-satisfied.
+   * Example: needs: { ENVIRONMENT: production } — show only when ENV=production.
+   * Example: needs: { ENVIRONMENT: [production, staging], DRY_RUN: "false" }.
+   */
+  needs?: Record<string, string | string[]>;
 }
 
 export interface PipelineConfig {

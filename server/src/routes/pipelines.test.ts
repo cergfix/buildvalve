@@ -12,28 +12,48 @@ import { describe, it, expect } from "vitest";
 import type { PipelineConfig, VariableConfig } from "../types/index.js";
 
 // Replicated from pipelines.ts for direct unit testing
+function needsSatisfied(
+  varConfig: VariableConfig,
+  configs: VariableConfig[],
+  userVars: Record<string, string>
+): boolean {
+  if (!varConfig.needs) return true;
+  for (const [otherKey, expected] of Object.entries(varConfig.needs)) {
+    const otherCfg = configs.find((c) => c.key === otherKey);
+    const actual = otherCfg?.locked
+      ? otherCfg.value
+      : (userVars[otherKey] ?? otherCfg?.value ?? "");
+    const expectedList = Array.isArray(expected) ? expected : [expected];
+    if (!expectedList.includes(actual)) return false;
+  }
+  return true;
+}
+
 function validateVariables(
   pipelineConfig: PipelineConfig,
   userVars: Record<string, string>
 ): string | null {
-  for (const varConfig of pipelineConfig.variables) {
+  const configs = pipelineConfig.variables;
+  for (const varConfig of configs) {
+    const visible = needsSatisfied(varConfig, configs, userVars);
+
     if (varConfig.locked && varConfig.key in userVars && userVars[varConfig.key] !== varConfig.value) {
       return `Variable "${varConfig.key}" is locked and cannot be changed`;
     }
-    if (varConfig.required && !varConfig.locked) {
+    if (visible && varConfig.required && !varConfig.locked) {
       const value = userVars[varConfig.key] ?? varConfig.value;
       if (!value) {
         return `Variable "${varConfig.key}" is required`;
       }
     }
-    if (varConfig.options && varConfig.options.length > 0 && !varConfig.locked) {
+    if (visible && varConfig.options && varConfig.options.length > 0 && !varConfig.locked) {
       const value = userVars[varConfig.key] ?? varConfig.value;
       if (value && !varConfig.options.includes(value)) {
         return `Variable "${varConfig.key}" must be one of: ${varConfig.options.join(", ")}`;
       }
     }
   }
-  const knownKeys = new Set(pipelineConfig.variables.map((v) => v.key));
+  const knownKeys = new Set(configs.map((v) => v.key));
   for (const key of Object.keys(userVars)) {
     if (!knownKeys.has(key)) {
       return `Unknown variable "${key}"`;
@@ -46,10 +66,12 @@ function buildFinalVariables(
   varConfigs: VariableConfig[],
   userVars: Record<string, string>
 ): { key: string; value: string }[] {
-  return varConfigs.map((vc) => ({
-    key: vc.key,
-    value: vc.locked ? vc.value : (userVars[vc.key] ?? vc.value),
-  }));
+  return varConfigs
+    .filter((vc) => needsSatisfied(vc, varConfigs, userVars))
+    .map((vc) => ({
+      key: vc.key,
+      value: vc.locked ? vc.value : (userVars[vc.key] ?? vc.value),
+    }));
 }
 
 const basePipeline: PipelineConfig = {
@@ -164,5 +186,81 @@ describe("buildFinalVariables", () => {
   it("ignores user override for locked variables", () => {
     const result = buildFinalVariables(basePipeline.variables, { TOKEN: "override-attempt" });
     expect(result.find((v) => v.key === "TOKEN")?.value).toBe("secret-123");
+  });
+});
+
+describe("needs (conditional variables)", () => {
+  const pipeline: PipelineConfig = {
+    name: "deploy",
+    ref: "main",
+    variables: [
+      { key: "ENVIRONMENT", value: "staging", locked: false, type: "select", options: ["staging", "production"] },
+      { key: "DRY_RUN", value: "true", locked: false, type: "radio", options: ["true", "false"] },
+      // Only shown when ENVIRONMENT=production
+      {
+        key: "NOTIFY_STAKEHOLDERS",
+        value: "false",
+        locked: false,
+        required: true,
+        type: "radio",
+        options: ["true", "false"],
+        needs: { ENVIRONMENT: "production" },
+      },
+      // Only shown when ENVIRONMENT is production OR staging AND DRY_RUN=false
+      {
+        key: "ROLLBACK_VERSION",
+        value: "",
+        locked: false,
+        needs: { ENVIRONMENT: ["production", "staging"], DRY_RUN: "false" },
+      },
+    ],
+  };
+
+  it("does not enforce required on a hidden variable", () => {
+    // NOTIFY_STAKEHOLDERS is required but ENVIRONMENT=staging hides it.
+    expect(validateVariables(pipeline, { ENVIRONMENT: "staging" })).toBeNull();
+  });
+
+  it("enforces required on a visible conditional variable", () => {
+    // NOTIFY_STAKEHOLDERS becomes visible when ENV=production and has no value.
+    const result = validateVariables(pipeline, { ENVIRONMENT: "production", NOTIFY_STAKEHOLDERS: "" });
+    expect(result).toBe('Variable "NOTIFY_STAKEHOLDERS" is required');
+  });
+
+  it("drops hidden variables from outbound payload", () => {
+    const result = buildFinalVariables(pipeline.variables, { ENVIRONMENT: "staging" });
+    expect(result.map((v) => v.key)).toEqual(["ENVIRONMENT", "DRY_RUN"]);
+  });
+
+  it("includes visible conditional variables in outbound payload", () => {
+    const result = buildFinalVariables(pipeline.variables, {
+      ENVIRONMENT: "production",
+      NOTIFY_STAKEHOLDERS: "true",
+    });
+    const keys = result.map((v) => v.key);
+    expect(keys).toContain("NOTIFY_STAKEHOLDERS");
+    expect(result.find((v) => v.key === "NOTIFY_STAKEHOLDERS")?.value).toBe("true");
+  });
+
+  it("evaluates multi-key needs with AND", () => {
+    // ROLLBACK_VERSION needs ENV in [prod,staging] AND DRY_RUN=false.
+    const hiddenA = buildFinalVariables(pipeline.variables, { ENVIRONMENT: "production", DRY_RUN: "true" });
+    expect(hiddenA.map((v) => v.key)).not.toContain("ROLLBACK_VERSION");
+
+    const visible = buildFinalVariables(pipeline.variables, { ENVIRONMENT: "staging", DRY_RUN: "false" });
+    expect(visible.map((v) => v.key)).toContain("ROLLBACK_VERSION");
+  });
+
+  it("treats needs list values as any-of", () => {
+    const a = buildFinalVariables(pipeline.variables, { ENVIRONMENT: "production", DRY_RUN: "false" });
+    const b = buildFinalVariables(pipeline.variables, { ENVIRONMENT: "staging", DRY_RUN: "false" });
+    expect(a.map((v) => v.key)).toContain("ROLLBACK_VERSION");
+    expect(b.map((v) => v.key)).toContain("ROLLBACK_VERSION");
+  });
+
+  it("uses config default for the trigger key when not submitted", () => {
+    // ENVIRONMENT defaults to "staging" — NOTIFY needs production, so still hidden.
+    const result = buildFinalVariables(pipeline.variables, {});
+    expect(result.map((v) => v.key)).not.toContain("NOTIFY_STAKEHOLDERS");
   });
 });

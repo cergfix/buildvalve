@@ -441,24 +441,58 @@ export function createPipelineRouter(config: AppConfig): Router {
   return router;
 }
 
+/**
+ * Returns true when a variable's `needs` conditions are satisfied by the
+ * currently effective values. Used for both visibility (frontend filtering)
+ * and gating server-side validation + outbound payload.
+ *
+ * Effective value = user-submitted value (when present) ?? config default.
+ * Locked variables always use their config default since the user can't change them.
+ *
+ * `needs` is a map; ALL keys must match (logical AND). Each value can be a
+ * single string (exact match) or an array (any-of). A variable with no `needs`
+ * is always visible.
+ */
+function needsSatisfied(
+  varConfig: VariableConfig,
+  configs: VariableConfig[],
+  userVars: Record<string, string>
+): boolean {
+  if (!varConfig.needs) return true;
+  for (const [otherKey, expected] of Object.entries(varConfig.needs)) {
+    const otherCfg = configs.find((c) => c.key === otherKey);
+    const actual = otherCfg?.locked
+      ? otherCfg.value
+      : (userVars[otherKey] ?? otherCfg?.value ?? "");
+    const expectedList = Array.isArray(expected) ? expected : [expected];
+    if (!expectedList.includes(actual)) return false;
+  }
+  return true;
+}
+
 function validateVariables(
   pipelineConfig: PipelineConfig,
   userVars: Record<string, string>
 ): string | null {
-  for (const varConfig of pipelineConfig.variables) {
+  const configs = pipelineConfig.variables;
+
+  for (const varConfig of configs) {
+    const visible = needsSatisfied(varConfig, configs, userVars);
+
     if (varConfig.locked && varConfig.key in userVars && userVars[varConfig.key] !== varConfig.value) {
       return `Variable "${varConfig.key}" is locked and cannot be changed`;
     }
 
-    if (varConfig.required && !varConfig.locked) {
+    // Required is only enforced for visible (needs-satisfied) variables.
+    if (visible && varConfig.required && !varConfig.locked) {
       const value = userVars[varConfig.key] ?? varConfig.value;
       if (!value) {
         return `Variable "${varConfig.key}" is required`;
       }
     }
 
-    // Validate select/radio values against allowed options
-    if (varConfig.options && varConfig.options.length > 0 && !varConfig.locked) {
+    // Validate select/radio values against allowed options (only when visible).
+    if (visible && varConfig.options && varConfig.options.length > 0 && !varConfig.locked) {
       const value = userVars[varConfig.key] ?? varConfig.value;
       if (value && !varConfig.options.includes(value)) {
         return `Variable "${varConfig.key}" must be one of: ${varConfig.options.join(", ")}`;
@@ -466,7 +500,7 @@ function validateVariables(
     }
   }
 
-  const knownKeys = new Set(pipelineConfig.variables.map((v) => v.key));
+  const knownKeys = new Set(configs.map((v) => v.key));
   for (const key of Object.keys(userVars)) {
     if (!knownKeys.has(key)) {
       return `Unknown variable "${key}"`;
@@ -480,8 +514,12 @@ function buildFinalVariables(
   varConfigs: VariableConfig[],
   userVars: Record<string, string>
 ): { key: string; value: string }[] {
-  return varConfigs.map((vc) => ({
-    key: vc.key,
-    value: vc.locked ? vc.value : (userVars[vc.key] ?? vc.value),
-  }));
+  // Variables whose `needs` are unsatisfied are dropped entirely — the CI
+  // provider never sees them.
+  return varConfigs
+    .filter((vc) => needsSatisfied(vc, varConfigs, userVars))
+    .map((vc) => ({
+      key: vc.key,
+      value: vc.locked ? vc.value : (userVars[vc.key] ?? vc.value),
+    }));
 }

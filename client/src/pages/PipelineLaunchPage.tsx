@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Play } from "lucide-react";
 import { toast } from "sonner";
@@ -11,6 +11,28 @@ import { SectionHead } from "../components/ui/section-head";
 import { Chip } from "../components/ui/chip";
 import { Btn } from "../components/ui/btn";
 import { VariableField } from "../components/ui/variable-field";
+
+/**
+ * Mirror of server-side needsSatisfied — keep in sync with
+ * server/src/routes/pipelines.ts. ALL keys must match (AND); each value can be
+ * a string or list (any-of).
+ */
+function needsSatisfied(
+  cfg: VariableConfig,
+  configs: VariableConfig[],
+  vars: Record<string, string>
+): boolean {
+  if (!cfg.needs) return true;
+  for (const [otherKey, expected] of Object.entries(cfg.needs)) {
+    const otherCfg = configs.find((c) => c.key === otherKey);
+    const actual = otherCfg?.locked
+      ? otherCfg.value
+      : (vars[otherKey] ?? otherCfg?.value ?? "");
+    const expectedList = Array.isArray(expected) ? expected : [expected];
+    if (!expectedList.includes(actual)) return false;
+  }
+  return true;
+}
 
 function kebab(name: string): string {
   return name
@@ -38,6 +60,11 @@ export function PipelineLaunchPage() {
 
   const [isTriggering, setIsTriggering] = useState(false);
 
+  const visibleVars = useMemo(() => {
+    if (!pipeline) return [];
+    return pipeline.variables.filter((vc) => needsSatisfied(vc, pipeline.variables, vars));
+  }, [pipeline, vars]);
+
   if (!project || !pipeline) {
     return <div className="text-fg-mute italic">Pipeline not found.</div>;
   }
@@ -49,7 +76,16 @@ export function PipelineLaunchPage() {
   const onTrigger = async () => {
     setIsTriggering(true);
     try {
-      const response = await pipelinesApi.trigger(project.id, pipeline.name, vars);
+      // Strip hidden (needs-unsatisfied) variables from the submitted payload —
+      // the server drops them too, but sending them would cause an "Unknown variable"
+      // error if the user changed the trigger key after typing into the dependent.
+      const submittedVars: Record<string, string> = {};
+      for (const vc of pipeline.variables) {
+        if (needsSatisfied(vc, pipeline.variables, vars) && vars[vc.key] !== undefined) {
+          submittedVars[vc.key] = vars[vc.key];
+        }
+      }
+      const response = await pipelinesApi.trigger(project.id, pipeline.name, submittedVars);
       toast.success("Pipeline triggered.");
       navigate(
         `/project/${encodeURIComponent(project.id)}/pipeline/${encodeURIComponent(pipeline.name)}/run/${response.id}`
@@ -108,7 +144,7 @@ export function PipelineLaunchPage() {
         {pipeline.variables.length === 0 ? (
           <p className="italic text-fg-mute">No variables configured for this pipeline.</p>
         ) : (
-          pipeline.variables.map((vc: VariableConfig, idx: number) => (
+          visibleVars.map((vc: VariableConfig, idx: number) => (
             <VariableField
               key={vc.key}
               config={vc}

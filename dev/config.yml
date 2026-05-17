@@ -88,6 +88,52 @@ projects:
               - "true"
               - "false"
 
+      - name: "Deploy"
+        ref: main
+        variables:
+          - key: ENVIRONMENT
+            value: staging
+            locked: false
+            description: "Target environment"
+            type: select
+            options:
+              - staging
+              - production
+          - key: VERSION
+            value: ""
+            locked: false
+            required: true
+            description: "Docker image tag to deploy"
+          # Conditional: only visible when ENVIRONMENT=production.
+          # Hidden values are dropped — never sent to the CI provider.
+          - key: NOTIFY_STAKEHOLDERS
+            value: "false"
+            locked: false
+            required: true
+            description: "Email the on-call list when the rollout completes"
+            type: radio
+            options:
+              - "true"
+              - "false"
+            needs:
+              ENVIRONMENT: production
+          # Multi-key AND example: visible only when ENV in [staging, production] AND DRY_RUN=false.
+          - key: ROLLBACK_VERSION
+            value: ""
+            locked: false
+            description: "Previous image tag to roll back to if the deploy fails"
+            needs:
+              ENVIRONMENT: [staging, production]
+              DRY_RUN: "false"
+          - key: DRY_RUN
+            value: "true"
+            locked: false
+            description: "Simulate without applying changes"
+            type: radio
+            options:
+              - "true"
+              - "false"
+
   - id: "myorg/frontend"
     name: "Frontend App (GitHub)"
     description: "React frontend on GitHub Actions"
