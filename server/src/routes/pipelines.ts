@@ -13,6 +13,11 @@ const recentPipelinesCache = new LRUCache<string, any>({
   ttl: 1000 * 10, // 10 seconds
 });
 
+/** Test-only: clear the in-memory recent-pipelines cache. */
+export function _resetRecentPipelinesCacheForTests() {
+  recentPipelinesCache.clear();
+}
+
 export function createPipelineRouter(config: AppConfig): Router {
   const router = Router();
 

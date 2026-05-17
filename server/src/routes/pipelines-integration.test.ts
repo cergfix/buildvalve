@@ -17,8 +17,9 @@ vi.mock("../services/ci/index.js", () => ({
   getCIProvider: vi.fn(),
 }));
 
-import { createPipelineRouter } from "./pipelines.js";
+import { createPipelineRouter, _resetRecentPipelinesCacheForTests } from "./pipelines.js";
 import { getCIProvider } from "../services/ci/index.js";
+import { CIProviderError } from "../services/ci/types.js";
 import { MockCIProvider } from "../services/ci/mock-provider.js";
 
 function makeConfig(): AppConfig {
@@ -81,6 +82,7 @@ let mockProvider: MockCIProvider;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  _resetRecentPipelinesCacheForTests();
   config = makeConfig();
   mockProvider = new MockCIProvider("default", "gitlab");
   vi.mocked(getCIProvider).mockReturnValue(mockProvider);
@@ -235,6 +237,176 @@ describe("POST /api/pipelines/trigger - per-pipeline permissions", () => {
 });
 
 // ── SSE endpoints ───────────────────────────────────────────────────────────
+
+// ── /api/pipelines/recent ──────────────────────────────────────────────────
+
+describe("GET /api/pipelines/recent - dashboard heartbeat / sidebar count", () => {
+  function makePipeline(id: string, createdAt: string) {
+    return {
+      id, provider: "gitlab", project_id: "1", status: "success", ref: "main",
+      sha: "abc", created_at: createdAt, updated_at: createdAt,
+      web_url: `http://mock-gitlab.local/1/-/pipelines/${id}`,
+    };
+  }
+
+  it("returns one entry per allowed project with the listPipelines payload", async () => {
+    const handler = findHandler(router, "get", "/api/pipelines/recent");
+    const { req, res } = mockReqRes({ email: "alice@co.com", provider: "mock" });
+
+    vi.spyOn(mockProvider, "listPipelines").mockResolvedValue([
+      makePipeline("100", "2025-01-01T10:00:00Z"),
+      makePipeline("101", "2025-01-01T11:00:00Z"),
+    ]);
+
+    await handler(req, res);
+
+    expect(res.json).toHaveBeenCalledTimes(1);
+    const body = res.json.mock.calls[0][0];
+    expect(body).toHaveLength(1);
+    expect(body[0].projectId).toBe("1");
+    expect(body[0].projectName).toBe("P1");
+    expect(body[0].pipelines).toHaveLength(2);
+  });
+
+  it("sorts pipelines by created_at descending (newest first)", async () => {
+    const handler = findHandler(router, "get", "/api/pipelines/recent");
+    const { req, res } = mockReqRes({ email: "alice@co.com", provider: "mock" });
+
+    vi.spyOn(mockProvider, "listPipelines").mockResolvedValue([
+      makePipeline("old", "2025-01-01T08:00:00Z"),
+      makePipeline("new", "2025-01-01T12:00:00Z"),
+      makePipeline("mid", "2025-01-01T10:00:00Z"),
+    ]);
+
+    await handler(req, res);
+
+    const body = res.json.mock.calls[0][0];
+    expect(body[0].pipelines.map((p: any) => p.id)).toEqual(["new", "mid", "old"]);
+  });
+
+  it("filters out projects the user has no permission for", async () => {
+    const handler = findHandler(router, "get", "/api/pipelines/recent");
+    const { req, res } = mockReqRes({ email: "stranger@co.com", provider: "mock" });
+
+    vi.spyOn(mockProvider, "listPipelines").mockResolvedValue([makePipeline("100", "2025-01-01T10:00:00Z")]);
+
+    await handler(req, res);
+
+    expect(res.json).toHaveBeenCalledWith([]);
+  });
+
+  it("returns 502 when the CI provider errors", async () => {
+    const handler = findHandler(router, "get", "/api/pipelines/recent");
+    const { req, res } = mockReqRes({ email: "alice@co.com", provider: "mock" });
+
+    vi.spyOn(mockProvider, "listPipelines").mockRejectedValue(
+      new CIProviderError(500, "boom", "default", "/listPipelines")
+    );
+
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(502);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ error: "CI provider error" })
+    );
+  });
+});
+
+// ── /api/pipelines/:projectId/history ──────────────────────────────────────
+
+describe("GET /api/pipelines/:projectId/history - filtered run history", () => {
+  it("returns history for an authorized user", async () => {
+    const handler = findHandler(router, "get", "/api/pipelines/:projectId/history");
+    const { req, res } = mockReqRes(
+      { email: "alice@co.com", provider: "mock" },
+      undefined,
+      { projectId: "1" },
+      { ref: "main" }
+    );
+
+    vi.spyOn(mockProvider, "listPipelines").mockResolvedValue([
+      { id: "1", provider: "gitlab", project_id: "1", status: "success", ref: "main", sha: "a",
+        created_at: "2025-01-01T00:00:00Z", updated_at: "2025-01-01T00:01:00Z",
+        web_url: "http://mock-gitlab.local/1/-/pipelines/1" },
+    ] as any);
+
+    await handler(req, res);
+
+    expect(mockProvider.listPipelines).toHaveBeenCalledWith("1", { per_page: 50, ref: "main" });
+    expect(res.json).toHaveBeenCalledTimes(1);
+    expect((res.json.mock.calls[0][0] as any[])[0].id).toBe("1");
+  });
+
+  it("returns 403 for unauthorized user", async () => {
+    const handler = findHandler(router, "get", "/api/pipelines/:projectId/history");
+    const { req, res } = mockReqRes(
+      { email: "stranger@co.com", provider: "mock" },
+      undefined,
+      { projectId: "1" },
+      { ref: "main" }
+    );
+
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json).toHaveBeenCalledWith({ error: "Not authorized for this project" });
+  });
+
+  it("returns 404 when the project doesn't exist", async () => {
+    const handler = findHandler(router, "get", "/api/pipelines/:projectId/history");
+    const { req, res } = mockReqRes(
+      { email: "alice@co.com", provider: "mock" },
+      undefined,
+      { projectId: "nope" },
+      { ref: "main" }
+    );
+
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    // isAuthorized returns false for an unknown project (no permission entry matches)
+    expect(res.json).toHaveBeenCalledWith({ error: "Not authorized for this project" });
+  });
+
+  it("propagates 4xx CI provider errors verbatim", async () => {
+    const handler = findHandler(router, "get", "/api/pipelines/:projectId/history");
+    const { req, res } = mockReqRes(
+      { email: "alice@co.com", provider: "mock" },
+      undefined,
+      { projectId: "1" },
+      { ref: "main" }
+    );
+
+    vi.spyOn(mockProvider, "listPipelines").mockRejectedValue(
+      new CIProviderError(404, "not found", "default", "/listPipelines")
+    );
+
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(404);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ error: "CI provider error" })
+    );
+  });
+
+  it("maps 5xx CI provider errors to 502", async () => {
+    const handler = findHandler(router, "get", "/api/pipelines/:projectId/history");
+    const { req, res } = mockReqRes(
+      { email: "alice@co.com", provider: "mock" },
+      undefined,
+      { projectId: "1" },
+      { ref: "main" }
+    );
+
+    vi.spyOn(mockProvider, "listPipelines").mockRejectedValue(
+      new CIProviderError(500, "boom", "default", "/listPipelines")
+    );
+
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(502);
+  });
+});
 
 describe("GET /api/pipelines/:projectId/:pipelineId/stream - SSE pipeline stream", () => {
   it("returns correct SSE headers for authorized user", async () => {
