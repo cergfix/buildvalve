@@ -1,14 +1,45 @@
-import { useAuth } from "../contexts/AuthContext";
-import { Button } from "../components/ui/button";
-import { Input } from "../components/ui/input";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
+import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { Search, Play, History } from "lucide-react";
+import { useAuth } from "../contexts/AuthContext";
 import { pipelinesApi } from "../api/queries";
 import type { RecentProjectPipelines, RecentPipeline, ResolvedPipeline } from "../api/types";
-import { useNavigate, Link } from "react-router-dom";
-import { Play, Loader2, CheckCircle, XCircle, History, Search } from "lucide-react";
-import { useState } from "react";
-import { ProviderBadge } from "../components/ui/provider-badge";
+import { PageHead } from "../components/ui/page-head";
+import { SectionHead } from "../components/ui/section-head";
+import { FlowDiagram } from "../components/ui/flow-diagram";
+import { ProviderChip } from "../components/ui/provider-chip";
+import { StatusChip } from "../components/ui/status-chip";
+import { Chip, type ChipTone } from "../components/ui/chip";
+import { Btn } from "../components/ui/btn";
+
+const RUNNING_STATES = new Set(["running", "pending", "created"]);
+
+function refTone(provider?: string): ChipTone {
+  if (provider === "gitlab") return "amber";
+  if (provider === "github-actions" || provider === "github") return "violet";
+  if (provider === "circleci") return "emerald";
+  return "sky";
+}
+
+function rowState(running?: RecentPipeline, last?: RecentPipeline): "running" | "success" | "failed" | "idle" {
+  if (running) return "running";
+  if (last?.status === "success") return "success";
+  if (last?.status === "failed") return "failed";
+  return "idle";
+}
+
+function relativeTime(iso?: string | null): string {
+  if (!iso) return "—";
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return "—";
+  const diff = (Date.now() - t) / 1000;
+  if (diff < 60) return `${Math.max(1, Math.floor(diff))}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  if (diff < 86400 * 7) return `${Math.floor(diff / 86400)}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
 
 export function PipelinesPage() {
   const { projects } = useAuth();
@@ -21,162 +52,172 @@ export function PipelinesPage() {
     refetchInterval: 5000,
   });
 
+  const filteredProjects = useMemo(() => {
+    if (!projects) return [];
+    const q = searchQuery.toLowerCase();
+    if (!q) return projects;
+    return projects
+      .map((project) => {
+        const isProjectMatch =
+          project.name.toLowerCase().includes(q) ||
+          (project.description && project.description.toLowerCase().includes(q));
+        if (isProjectMatch) return project;
+        const matching = project.pipelines.filter(
+          (p) => p.name.toLowerCase().includes(q) || p.ref.toLowerCase().includes(q)
+        );
+        return { ...project, pipelines: matching };
+      })
+      .filter((project) => project.pipelines.length > 0);
+  }, [projects, searchQuery]);
+
   if (!projects || projects.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full p-8 text-center text-slate-500">
-        <p className="text-xl">You do not have access to any projects.</p>
-      </div>
+      <div className="text-fg-mute italic">You do not have access to any projects.</div>
     );
   }
 
-  const lowerQuery = searchQuery.toLowerCase();
-  const filteredProjects = projects?.map(project => {
-    const isProjectMatch = project.name.toLowerCase().includes(lowerQuery) ||
-                           (project.description && project.description.toLowerCase().includes(lowerQuery));
-
-    if (isProjectMatch) return project;
-
-    const matchingPipelines = project.pipelines.filter(p =>
-      p.name.toLowerCase().includes(lowerQuery) ||
-      p.ref.toLowerCase().includes(lowerQuery)
-    );
-
-    return { ...project, pipelines: matchingPipelines };
-  }).filter(project => project.pipelines.length > 0);
+  const totalAccessible = filteredProjects.length;
 
   return (
-    <div className="space-y-8 pb-10">
-      <div className="relative w-full max-w-2xl">
-        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
-        <Input
-          placeholder="Search projects, pipelines, or refs..."
+    <div>
+      <PageHead
+        kicker={
+          <>
+            <span>BUILDVALVE</span>
+            <span className="ver">v{__APP_VERSION__} ▸ /pipelines</span>
+          </>
+        }
+        title="pipelines"
+        slashed
+        sub="Tell BuildValve what to launch. Trigger CI/CD pipelines across all your allowed projects — without giving anyone direct CI access."
+      />
+
+      <div className="search">
+        <Search size={14} className="opacity-70" />
+        <input
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="pl-12 h-12 text-base shadow-sm border-[1.5px] rounded-lg bg-white dark:bg-slate-900"
+          placeholder="search projects, pipelines, or refs..."
         />
+        <span className="kbd">
+          <span>⌘</span>
+          <span>K</span>
+        </span>
       </div>
 
-      <div>
-        <h2 className="text-3xl font-bold tracking-tight">Pipelines</h2>
-        <p className="text-slate-500 mt-2">Trigger CI/CD pipelines across all your allowed projects.</p>
-      </div>
+      <SectionHead color="emerald" flowHead>
+        how to launch
+      </SectionHead>
+      <FlowDiagram />
 
-      <div className="space-y-12">
-        {filteredProjects?.length === 0 ? (
-          <div className="text-center py-12 text-slate-500 italic border-[1.5px] border-dashed border-slate-200 dark:border-slate-700 rounded-lg">
-            No projects or pipelines match your search for "{searchQuery}".
-          </div>
-        ) : (
-          filteredProjects?.map((project) => (
-            <section key={project.id} className="space-y-4">
-              <div className="border-b-[1.5px] border-slate-200 dark:border-slate-700 pb-2 mb-4">
-              <h3 className="text-xl font-bold flex items-center gap-2">
-                {project.name}
-              </h3>
-              {project.description && <p className="text-slate-500 mt-1">{project.description}</p>}
-            </div>
+      <SectionHead>projects — {totalAccessible} accessible</SectionHead>
 
-            {project.pipelines.length === 0 ? (
-              <p className="text-sm text-slate-400 italic">No pipelines allowed for this project.</p>
-            ) : (
-              <div className="rounded-md border-[1.5px] border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden">
-                <Table>
-                  <TableHeader className="">
-                    <TableRow>
-                      <TableHead className="w-[20%]">Pipeline Name</TableHead>
-                      <TableHead className="w-[10%]">Provider</TableHead>
-                      <TableHead className="w-[10%]">Ref</TableHead>
-                      <TableHead className="w-[15%]">Last Pipeline</TableHead>
-                      <TableHead className="w-[15%]">Currently Running</TableHead>
-                      <TableHead className="text-right w-[20%]">Action</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {(project.pipelines as unknown as ResolvedPipeline[]).map((pipeline) => {
-                      const projectRecent = recentData?.find((r: RecentProjectPipelines) => r.projectId === project.id);
-                      const projectPipelines: RecentPipeline[] = projectRecent?.pipelines || [];
-                      
-                      // Filter by ref AND provider if provided by backend
-                      const matchingPipelines = projectPipelines.filter((p: RecentPipeline) => 
-                        p.ref === pipeline.ref && 
-                        (!p.provider || !pipeline.providerType || p.provider === pipeline.providerType)
-                      );
+      {filteredProjects.length === 0 ? (
+        <div className="text-fg-mute italic py-10 text-center">
+          no projects or pipelines match "{searchQuery}"
+        </div>
+      ) : (
+        filteredProjects.map((project) => {
+          const projectRecent: RecentProjectPipelines | undefined = recentData?.find(
+            (r) => r.projectId === project.id
+          );
+          const projectPipelines: RecentPipeline[] = projectRecent?.pipelines || [];
 
-                      const runningPipeline = matchingPipelines.find((p: RecentPipeline) => ["running", "pending", "created"].includes(p.status));
-                      const lastPipeline = matchingPipelines.find((p: RecentPipeline) => !["running", "pending", "created"].includes(p.status));
-
-                      const getStatusIcon = (status: string) => {
-                        if (status === "success") return <CheckCircle className="text-green-500 inline mr-1" size={14} />;
-                        if (status === "failed") return <XCircle className="text-red-500 inline mr-1" size={14} />;
-                        if (status === "running" || status === "pending") return <Loader2 className="text-blue-500 animate-spin inline mr-1" size={14} />;
-                        return null;
-                      };
-
-                      return (
-                      <TableRow key={pipeline.name}>
-                        <TableCell className="font-semibold">{pipeline.name}</TableCell>
-                        <TableCell>
-                          <ProviderBadge type={pipeline.providerType} />
-                        </TableCell>
-                        <TableCell>
-                          <code className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700 text-xs font-mono text-slate-600 dark:text-slate-300">{pipeline.ref}</code>
-                        </TableCell>
-                        <TableCell>
-                          {lastPipeline ? (
-                            <div className="flex items-center">
-                              {getStatusIcon(lastPipeline.status)}
-                              <Link to={`/project/${encodeURIComponent(project.id)}/pipeline/${encodeURIComponent(pipeline.name)}/run/${lastPipeline.id}`} className="text-primary hover:underline font-medium text-xs flex items-center">
-                                #{lastPipeline.id}
-                              </Link>
-                            </div>
-                          ) : (
-                            <span className="text-slate-400 italic text-xs">N/A</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {runningPipeline ? (
-                            <div className="flex items-center">
-                              <Loader2 className="text-blue-500 animate-spin inline mr-1" size={14} />
-                              <Link to={`/project/${encodeURIComponent(project.id)}/pipeline/${encodeURIComponent(pipeline.name)}/run/${runningPipeline.id}`} className="text-primary hover:underline font-medium text-xs flex items-center">
-                                #{runningPipeline.id}
-                              </Link>
-                            </div>
-                          ) : (
-                            <span className="text-slate-400 italic text-xs">Not running</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <Button
-                              variant="outline"
-                              className="font-bold text-xs px-3 shadow-none border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300"
-                              size="sm"
-                              onClick={() => navigate(`/project/${encodeURIComponent(project.id)}/pipeline/${encodeURIComponent(pipeline.name)}/history`)}
-                            >
-                              <History size={14} className="mr-1 inline-block" />
-                              History
-                            </Button>
-                            <Button
-                              className="font-bold text-xs px-3"
-                              size="sm"
-                              onClick={() => navigate(`/project/${encodeURIComponent(project.id)}/pipeline/${encodeURIComponent(pipeline.name)}`)}
-                            >
-                              <Play size={14} className="mr-1 inline-block" />
-                              Launch
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
+          return (
+            <section key={project.id} className="project">
+              <div className="project-head">
+                <h2 className="project-name">{project.name}</h2>
+                <ProviderChip type={project.provider} />
               </div>
-            )}
+              <div className="project-desc">
+                {project.description ? <span>{project.description}</span> : null}
+                {project.description ? <span className="sep">|</span> : null}
+                <span>id: {project.id}</span>
+                <span className="sep">|</span>
+                <span>pipelines: {project.pipelines.length}</span>
+              </div>
+
+              <div className="pipe-list-head">
+                <span>pipeline</span>
+                <span>ref</span>
+                <span>last run</span>
+                <span>status</span>
+                <span className="end">action</span>
+              </div>
+
+              <div className="pipe-list">
+                {(project.pipelines as unknown as ResolvedPipeline[]).map((pipeline) => {
+                  const matching = projectPipelines.filter(
+                    (p) =>
+                      p.ref === pipeline.ref &&
+                      (!p.provider || !pipeline.providerType || p.provider === pipeline.providerType)
+                  );
+                  const running = matching.find((p) => RUNNING_STATES.has(p.status));
+                  const last = matching.find((p) => !RUNNING_STATES.has(p.status));
+                  const state = rowState(running, last);
+                  const linkTarget = running ?? last;
+                  const lastIso = last?.web_url ? undefined : undefined; // no created_at on recent payload
+                  const lastLabel = last ? relativeTime(lastIso) || "recent" : "—";
+
+                  const openRun = () => {
+                    if (!linkTarget) return;
+                    navigate(
+                      `/project/${encodeURIComponent(project.id)}/pipeline/${encodeURIComponent(pipeline.name)}/run/${linkTarget.id}`
+                    );
+                  };
+
+                  return (
+                    <div key={pipeline.name} className="pipe-row" data-state={state}>
+                      <div className="pipe-name">
+                        <span className="marker" aria-hidden="true" />
+                        <span>{pipeline.name}</span>
+                      </div>
+                      <div className="pipe-cell">
+                        <Chip tone={refTone(pipeline.providerType)}>{pipeline.ref}</Chip>
+                      </div>
+                      <div className="pipe-cell dim">{lastLabel}</div>
+                      <div className="pipe-cell">
+                        {linkTarget ? (
+                          <button type="button" className="status-link" onClick={openRun}>
+                            <StatusChip state={state === "idle" ? undefined : state} />
+                            <span aria-hidden="true">→</span>
+                          </button>
+                        ) : (
+                          <span className="text-fg-faint italic">never run</span>
+                        )}
+                      </div>
+                      <div className="pipe-actions">
+                        <Btn
+                          variant="ghost"
+                          icon={<History size={12} />}
+                          onClick={() =>
+                            navigate(
+                              `/project/${encodeURIComponent(project.id)}/pipeline/${encodeURIComponent(pipeline.name)}/history`
+                            )
+                          }
+                        >
+                          history
+                        </Btn>
+                        <Btn
+                          variant="primary"
+                          icon={<Play size={12} />}
+                          onClick={() =>
+                            navigate(
+                              `/project/${encodeURIComponent(project.id)}/pipeline/${encodeURIComponent(pipeline.name)}`
+                            )
+                          }
+                        >
+                          launch
+                        </Btn>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </section>
-          ))
-        )}
-      </div>
+          );
+        })
+      )}
     </div>
   );
 }
