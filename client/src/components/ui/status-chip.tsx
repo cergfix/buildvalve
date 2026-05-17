@@ -15,7 +15,9 @@ const stateToTone: Record<string, { label: string; tone: ChipTone }> = {
 export function StatusChip({ state, className }: { state?: StatusState; className?: string }) {
   const s = String(state ?? "").toLowerCase();
   const info = stateToTone[s] ?? { label: s || "unknown", tone: "muted" as ChipTone };
-  const isRunning = s === "running" || s === "pending" || s === "created";
+  // Only the actually-executing state animates; "pending" / "created" stay static muted
+  // since the running animation's keyframes are hard-coded amber and would clash with muted.
+  const isRunning = s === "running";
   return (
     <Chip
       tone={info.tone}
