@@ -1,47 +1,65 @@
 import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
+import { AlertCircle, Loader2 } from "lucide-react";
 import { adminApi } from "../api/queries";
-import { AlertCircle, FileJson, Loader2 } from "lucide-react";
+import { Crumb } from "../components/ui/crumb";
+import { PageHead } from "../components/ui/page-head";
+import { SectionHead } from "../components/ui/section-head";
 
 export function AdminConfigPage() {
+  const navigate = useNavigate();
   const { data: config, isLoading, error } = useQuery({
     queryKey: ["adminConfig"],
     queryFn: () => adminApi.getConfig(),
-    retry: false
+    retry: false,
   });
 
   return (
-    <div className="w-full flex flex-col h-[calc(100vh-8rem)]">
-      <div className="flex-none mb-6 mt-2">
-        <div className="border-b-[1.5px] border-slate-200 pb-4">
-          <h2 className="text-3xl font-bold tracking-tight flex items-center gap-2 mb-2">
-            <FileJson size={28} className="text-primary" />
-            Loaded `config.yml` Payload
-          </h2>
-          <p className="text-slate-500 mt-1">
-            Active backend configuration. Settings are read-only and must be altered via server deployment.
-            Sensitive tokens are automatically redacted via the API before transmission.
-          </p>
-        </div>
-      </div>
+    <div>
+      <Crumb onClick={() => navigate("/")}>Back to pipelines</Crumb>
 
-      <div className="flex-1 min-h-0 rounded-md border-[1.5px] border-slate-200 dark:border-slate-700 overflow-hidden flex flex-col">
-        {isLoading ? (
-          <div className="flex flex-1 items-center justify-center bg-white dark:bg-slate-900 p-6 text-slate-500 font-mono text-sm">
-            <span className="flex items-center gap-2"><Loader2 className="animate-spin" size={16} /> Loading config...</span>
+      <PageHead
+        kicker={
+          <>
+            <span>account</span>
+            <span>·</span>
+            <span>admin</span>
+          </>
+        }
+        title="admin"
+        slashed
+        sub="Active backend configuration. Read-only — alter via server deployment. Sensitive tokens are redacted server-side."
+      />
+
+      <SectionHead color="amber">config.yml</SectionHead>
+
+      <div className="terminal">
+        <div className="terminal-head">
+          <div className="dots" aria-hidden="true">
+            <span />
+            <span />
+            <span />
           </div>
-        ) : error ? (
-          <div className="flex flex-1 flex-col items-center justify-center p-6 text-center text-red-500 bg-red-950/20 max-w-full">
-            <AlertCircle size={48} className="mb-4 text-red-500" />
-            <h3 className="text-xl font-bold mb-2">Access Denied</h3>
-            <p className="max-w-md">You must be listed in the root `admins` array in the configuration file to view this section.</p>
-          </div>
-        ) : (
-          <pre 
-            className="flex-1 overflow-y-auto bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-300 p-6 font-mono text-sm leading-relaxed whitespace-pre-wrap"
-          >
-            {JSON.stringify(config, null, 2)}
-          </pre>
-        )}
+          <div className="label">config.yml · loaded</div>
+        </div>
+        <div className="terminal-body">
+          {isLoading ? (
+            <span className="text-fg-mute italic flex items-center gap-2">
+              <Loader2 size={14} className="animate-spin" /> loading config…
+            </span>
+          ) : error ? (
+            <div className="flex flex-col items-center gap-3 py-8 text-center text-rose">
+              <AlertCircle size={32} />
+              <h3 className="text-fg text-base font-semibold">Access denied</h3>
+              <p className="text-fg-mid text-[12px] max-w-md">
+                You must be listed in the root <code className="text-violet">admins</code> array in the configuration
+                file to view this section.
+              </p>
+            </div>
+          ) : (
+            <pre className="m-0 whitespace-pre-wrap break-words">{JSON.stringify(config, null, 2)}</pre>
+          )}
+        </div>
       </div>
     </div>
   );

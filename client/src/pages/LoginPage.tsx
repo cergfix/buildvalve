@@ -3,10 +3,8 @@ import { Navigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { authApi, type ProviderInfo } from "../api/queries";
 import { fetchApi, API_BASE } from "../api/client";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
-import { Button } from "../components/ui/button";
-import { Input } from "../components/ui/input";
 import { LogIn, AlertCircle } from "lucide-react";
+import { Btn } from "../components/ui/btn";
 
 function LocalLoginForm({ provider }: { provider: ProviderInfo }) {
   const [email, setEmail] = useState("");
@@ -18,7 +16,6 @@ function LocalLoginForm({ provider }: { provider: ProviderInfo }) {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
-
     try {
       await fetchApi(provider.loginUrl, {
         method: "POST",
@@ -35,35 +32,29 @@ function LocalLoginForm({ provider }: { provider: ProviderInfo }) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
-      <div className="text-sm font-medium text-center text-muted-foreground">{provider.label}</div>
-      <Input
+      <div className="text-[10px] uppercase tracking-[0.14em] text-fg-mute text-center">{provider.label}</div>
+      <input
+        className="var-input"
         type="email"
-        placeholder="Email"
+        placeholder="email"
         value={email}
         onChange={(e) => setEmail(e.target.value)}
         required
         autoComplete="email"
       />
-      <Input
+      <input
+        className="var-input"
         type="password"
-        placeholder="Password"
+        placeholder="password"
         value={password}
         onChange={(e) => setPassword(e.target.value)}
         required
         autoComplete="current-password"
       />
-      {error && (
-        <div className="text-sm text-red-500 text-center">{error}</div>
-      )}
-      <Button
-        type="submit"
-        className="w-full shadow-blocky flex items-center justify-center gap-2 text-md"
-        size="lg"
-        disabled={submitting}
-      >
-        <LogIn size={20} />
-        {submitting ? "Signing in..." : "Sign in"}
-      </Button>
+      {error && <div className="text-rose text-[11px] text-center">{error}</div>}
+      <Btn type="submit" variant="primary" size="lg" icon={<LogIn size={14} />} disabled={submitting} className="w-full">
+        {submitting ? "signing in…" : "sign in"}
+      </Btn>
     </form>
   );
 }
@@ -76,15 +67,18 @@ export function LoginPage() {
   const urlError = searchParams.get("error");
 
   useEffect(() => {
-    authApi.getProviders()
+    authApi
+      .getProviders()
       .then(setProviders)
       .catch((err: unknown) => {
         console.error(err);
-        setFetchError("Unable to load authentication providers. The server might be unreachable or misconfigured.");
+        setFetchError(
+          "Unable to load authentication providers. The server might be unreachable or misconfigured."
+        );
       });
   }, []);
 
-  if (isLoading) return <div className="flex h-screen items-center justify-center">Loading...</div>;
+  if (isLoading) return <div className="flex h-screen items-center justify-center text-fg-mute">Loading…</div>;
   if (isAuthenticated && !urlError) return <Navigate to="/" replace />;
 
   const oauthProviders = providers.filter((p) => !p.form);
@@ -112,64 +106,67 @@ export function LoginPage() {
   const displayError = urlError ? getErrorMessage(urlError) : fetchError;
 
   return (
-    <div className="flex bg-slate-50 dark:bg-slate-900 h-screen w-full items-center justify-center p-4">
+    <div className="min-h-screen w-full flex items-center justify-center p-4 bg-bg text-fg">
       <div className="w-full max-w-sm flex flex-col items-center">
-        <Card className="w-full shadow-blocky-strong shadow-primary border-2 border-primary mb-6">
-          <CardHeader className="text-center pb-2">
-            <CardTitle className="text-6xl font-black text-primary tracking-tight mb-2">BuildValve</CardTitle>
-            <CardDescription className="text-base">Sign in to launch pipelines</CardDescription>
-          </CardHeader>
-          <CardContent className="pt-0 space-y-4">
+        <div className="brand mb-6" style={{ borderBottom: "none", paddingBottom: 0 }}>
+          <span className="brand-dot" aria-hidden="true" />
+          <span>BUILDVALVE</span>
+          <span className="ver">v{__APP_VERSION__}</span>
+        </div>
+
+        <div className="box has-accent w-full" data-accent="emerald">
+          <div className="box-body" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div className="text-center">
+              <h1 className="page-title" style={{ fontSize: 32 }}>
+                <span className="slash">/</span>
+                login
+              </h1>
+              <p className="text-fg-mute text-[12px] mt-2">Sign in to launch pipelines</p>
+            </div>
+
             {displayError && (
-              <div className="bg-red-50 text-red-600 border border-red-200 p-4 rounded-md flex flex-col items-center text-center space-y-2 mb-2 animate-in fade-in slide-in-from-top-1">
-                <AlertCircle size={32} />
-                <p className="text-sm font-medium">{displayError}</p>
+              <div className="box has-accent" data-accent="rose">
+                <div className="box-body flex flex-col items-center text-center gap-2">
+                  <AlertCircle size={20} className="text-rose" />
+                  <p className="text-[12px] text-fg">{displayError}</p>
+                </div>
               </div>
             )}
 
             {providers.length === 0 && !fetchError ? (
-              <div className="text-center text-sm text-slate-500 bg-slate-100 p-4 rounded-md">
-                No auth providers enabled. Please check server config.
+              <div className="text-center text-[12px] text-fg-mute italic">
+                No auth providers enabled. Check server config.
               </div>
             ) : (
               <>
-                {/* Always show form-based providers (like Local Login) at the top */}
                 {formProviders.map((p) => (
                   <LocalLoginForm key={p.type} provider={p} />
                 ))}
 
                 {formProviders.length > 0 && oauthProviders.length > 0 && (
-                  <div className="relative py-2">
-                    <div className="absolute inset-0 flex items-center">
-                      <span className="w-full border-t" />
-                    </div>
-                    <div className="relative flex justify-center text-xs uppercase">
-                      <span className="bg-card px-2 text-muted-foreground">or</span>
-                    </div>
-                  </div>
+                  <div className="text-center text-[10px] uppercase tracking-[0.14em] text-fg-mute">— or —</div>
                 )}
 
-                {/* Show OAuth/Button-based providers below */}
-                <div className="space-y-3">
+                <div className="flex flex-col gap-2">
                   {oauthProviders.map((p) => (
-                    <Button
+                    <Btn
                       key={p.type}
-                      className="w-full shadow-blocky flex items-center justify-center gap-2 text-md"
+                      variant="default"
                       size="lg"
+                      icon={<LogIn size={14} />}
                       onClick={() => (window.location.href = `${API_BASE}${p.loginUrl}`)}
+                      className="w-full"
                     >
-                      <LogIn size={20} />
                       {p.buttonLabel}
-                    </Button>
+                    </Btn>
                   ))}
                 </div>
               </>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
 
-        <div className="text-center text-xs text-slate-400 font-medium space-y-1">
-          <p>BuildValve v{__APP_VERSION__}</p>
+        <div className="text-center text-[10px] text-fg-faint mt-6 space-y-1">
           <p>&copy; {new Date().getFullYear()} BuildValve contributors</p>
         </div>
       </div>

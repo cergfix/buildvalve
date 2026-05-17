@@ -54,7 +54,7 @@ describe("LoginPage", () => {
   it("shows branding", async () => {
     renderPage();
     await waitFor(() => {
-      expect(screen.getByText("BuildValve")).toBeInTheDocument();
+      expect(screen.getByText("BUILDVALVE")).toBeInTheDocument();
       expect(screen.getByText("Sign in to launch pipelines")).toBeInTheDocument();
     });
   });
@@ -88,9 +88,9 @@ describe("LoginPage", () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByPlaceholderText("Email")).toBeInTheDocument();
-      expect(screen.getByPlaceholderText("Password")).toBeInTheDocument();
-      expect(screen.getByText("Sign in")).toBeInTheDocument();
+      expect(screen.getByPlaceholderText("email")).toBeInTheDocument();
+      expect(screen.getByPlaceholderText("password")).toBeInTheDocument();
+      expect(screen.getByText("sign in")).toBeInTheDocument();
     });
   });
 
@@ -103,7 +103,7 @@ describe("LoginPage", () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByText("or")).toBeInTheDocument();
+      expect(screen.getByText(/—\s*or\s*—/)).toBeInTheDocument();
     });
   });
 
@@ -117,12 +117,12 @@ describe("LoginPage", () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByPlaceholderText("Email")).toBeInTheDocument();
+      expect(screen.getByPlaceholderText("email")).toBeInTheDocument();
     });
 
-    await user.type(screen.getByPlaceholderText("Email"), "alice@co.com");
-    await user.type(screen.getByPlaceholderText("Password"), "secret123");
-    await user.click(screen.getByText("Sign in"));
+    await user.type(screen.getByPlaceholderText("email"), "alice@co.com");
+    await user.type(screen.getByPlaceholderText("password"), "secret123");
+    await user.click(screen.getByText("sign in"));
 
     await waitFor(() => {
       expect(mockFetchApi).toHaveBeenCalledWith("/api/auth/local/login", {
@@ -142,12 +142,12 @@ describe("LoginPage", () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByPlaceholderText("Email")).toBeInTheDocument();
+      expect(screen.getByPlaceholderText("email")).toBeInTheDocument();
     });
 
-    await user.type(screen.getByPlaceholderText("Email"), "alice@co.com");
-    await user.type(screen.getByPlaceholderText("Password"), "wrong");
-    await user.click(screen.getByText("Sign in"));
+    await user.type(screen.getByPlaceholderText("email"), "alice@co.com");
+    await user.type(screen.getByPlaceholderText("password"), "wrong");
+    await user.click(screen.getByText("sign in"));
 
     await waitFor(() => {
       expect(screen.getByText("Invalid email or password")).toBeInTheDocument();
