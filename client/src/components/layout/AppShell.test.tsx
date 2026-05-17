@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AppShell } from "./AppShell";
 
 (globalThis as unknown as Record<string, string>).__APP_VERSION__ = "0.0.0-test";
@@ -13,11 +14,20 @@ vi.mock("../../contexts/AuthContext", () => ({
   useAuth: () => mockAuthValue,
 }));
 
+vi.mock("../../api/queries", () => ({
+  pipelinesApi: {
+    getRecent: vi.fn().mockResolvedValue([]),
+  },
+}));
+
 function renderShell() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <MemoryRouter>
-      <AppShell />
-    </MemoryRouter>,
+    <QueryClientProvider client={client}>
+      <MemoryRouter>
+        <AppShell />
+      </MemoryRouter>
+    </QueryClientProvider>
   );
 }
 
@@ -33,21 +43,21 @@ describe("AppShell", () => {
     };
   });
 
-  it("renders sidebar with Pipelines and Profile nav items", () => {
+  it("renders sidebar with pipelines and profile nav items", () => {
     renderShell();
-    expect(screen.getByText("Pipelines")).toBeInTheDocument();
-    expect(screen.getByText("Profile")).toBeInTheDocument();
+    expect(screen.getByText("pipelines")).toBeInTheDocument();
+    expect(screen.getByText("profile")).toBeInTheDocument();
   });
 
-  it("shows Admin Settings when user is admin", () => {
+  it("shows admin settings when user is admin", () => {
     mockAuthValue.isAdmin = true;
     renderShell();
-    expect(screen.getByText("Admin Settings")).toBeInTheDocument();
+    expect(screen.getByText("admin settings")).toBeInTheDocument();
   });
 
-  it("hides Admin Settings when user is not admin", () => {
+  it("hides admin settings when user is not admin", () => {
     renderShell();
-    expect(screen.queryByText("Admin Settings")).not.toBeInTheDocument();
+    expect(screen.queryByText("admin settings")).not.toBeInTheDocument();
   });
 
   it("renders external links in the sidebar", () => {
@@ -76,18 +86,17 @@ describe("AppShell", () => {
 
   it("renders BuildValve branding", () => {
     renderShell();
-    expect(screen.getByText("BuildValve")).toBeInTheDocument();
+    expect(screen.getByText("BUILDVALVE")).toBeInTheDocument();
   });
 
-  it("shows Logout button", () => {
+  it("shows logout button", () => {
     renderShell();
-    expect(screen.getByText("Logout")).toBeInTheDocument();
+    expect(screen.getByText("logout")).toBeInTheDocument();
   });
 
   it("redirects to /login when user is null", () => {
     mockAuthValue.user = null;
     renderShell();
-    // Navigate component renders nothing visible, but the pipeline text shouldn't be shown
-    expect(screen.queryByText("Pipelines")).not.toBeInTheDocument();
+    expect(screen.queryByText("pipelines")).not.toBeInTheDocument();
   });
 });

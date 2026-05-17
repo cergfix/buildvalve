@@ -1,135 +1,135 @@
-import { useState } from "react";
-import { Outlet, Navigate, NavLink } from "react-router-dom";
+import { Outlet, Navigate, NavLink, useLocation } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../../contexts/AuthContext";
-import { GitBranch, User, Settings, LogOut, ChevronLeft, ChevronRight, ExternalLink } from "lucide-react";
+import { pipelinesApi } from "../../api/queries";
+import { GitBranch, Terminal, ExternalLink, User, Settings, LogOut } from "lucide-react";
+
+interface NavItemProps {
+  to: string;
+  icon: React.ComponentType<{ size?: number; className?: string }>;
+  label: string;
+  count?: number;
+  end?: boolean;
+}
+
+function NavRow({ to, icon: Icon, label, count, end }: NavItemProps) {
+  return (
+    <NavLink
+      to={to}
+      end={end}
+      className={({ isActive }: { isActive: boolean }) => `nav-item ${isActive ? "active" : ""}`}
+    >
+      {({ isActive }: { isActive: boolean }) => (
+        <>
+          <span className="nav-prefix">{isActive ? ">" : "·"}</span>
+          <Icon size={14} className="shrink-0 opacity-80" />
+          <span className="nav-label">{label}</span>
+          {count != null ? <span className="nav-count">{count}</span> : null}
+        </>
+      )}
+    </NavLink>
+  );
+}
 
 export function AppShell() {
   const { user, logout, isLoading, isAdmin, externalLinks } = useAuth();
-  const [collapsed, setCollapsed] = useState(false);
+  const location = useLocation();
+
+  const { data: recent } = useQuery({
+    queryKey: ["recentPipelines"],
+    queryFn: pipelinesApi.getRecent,
+    refetchInterval: 5000,
+    enabled: !!user,
+  });
 
   if (isLoading) {
-    return <div className="flex h-screen w-full items-center justify-center text-slate-500"><svg className="animate-spin h-8 w-8 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg></div>;
+    return (
+      <div className="flex h-screen w-full items-center justify-center text-fg-mute">
+        <span className="status-dot" /> connecting…
+      </div>
+    );
   }
 
   if (!user) {
     return <Navigate to="/login" replace />;
   }
 
-  const navItems = [
-    { name: "Pipelines", to: "/", icon: GitBranch },
-    { name: "Profile", to: "/profile", icon: User },
-  ];
-
-  if (isAdmin) {
-    navItems.push({ name: "Admin Settings", to: "/admin", icon: Settings });
-  }
+  const recentCount = recent?.reduce((n, p) => n + p.pipelines.length, 0) ?? 0;
+  const onPipelinesArea = location.pathname === "/" || location.pathname.startsWith("/project/");
 
   return (
-    <div className="flex h-screen w-full bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-sans">
-      {/* Sidebar */}
-      <div
-        className={`relative border-r-[1.5px] border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col justify-between shadow-sm z-10 transition-all duration-300 ease-in-out ${
-          collapsed ? "w-[68px]" : "w-64"
-        }`}
-      >
-        {/* Collapse toggle button */}
-        <button
-          onClick={() => setCollapsed((c) => !c)}
-          className="absolute -right-3 top-9 z-20 flex h-6 w-6 items-center justify-center rounded-full border-[1.5px] border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-500 hover:text-primary hover:border-primary shadow-sm transition-all"
-          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-        >
-          {collapsed ? <ChevronRight size={13} /> : <ChevronLeft size={13} />}
-        </button>
-
-        <div className="overflow-hidden">
-          {/* Logo area */}
-          <div className="h-[72px] flex items-center justify-center border-b-[1.5px] border-slate-100 dark:border-slate-800 px-5 overflow-hidden">
-            {collapsed ? (
-              <span className="text-2xl font-black tracking-tight text-primary select-none">B</span>
-            ) : (
-              <h1 className="text-4xl font-black tracking-tight text-primary whitespace-nowrap">BuildValve</h1>
-            )}
+    <div className="app">
+      <aside className="sidebar">
+        <div>
+          <div className="brand">
+            <span className="brand-dot" aria-hidden="true" />
+            <span>BUILDVALVE</span>
+            <span className="ver">v{__APP_VERSION__}</span>
           </div>
 
-          {/* Nav items */}
-          <nav className="p-3 space-y-1">
-            {navItems.map((item, index) => (
-              <div key={item.to}>
-                <NavLink
-                  to={item.to}
-                  title={collapsed ? item.name : undefined}
-                  className={({ isActive }: { isActive: boolean }) =>
-                    `flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-all overflow-hidden ${
-                      isActive
-                        ? "bg-primary text-primary-foreground shadow-blocky"
-                        : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
-                    }`
-                  }
+          <div className="nav-group">
+            <div className="nav-heading">workspace</div>
+            <NavLink
+              to="/"
+              end
+              className={`nav-item ${onPipelinesArea ? "active" : ""}`}
+            >
+              <span className="nav-prefix">{onPipelinesArea ? ">" : "·"}</span>
+              <GitBranch size={14} className="shrink-0 opacity-80" />
+              <span className="nav-label">pipelines</span>
+            </NavLink>
+            <div className="nav-item" style={{ cursor: "default", opacity: 0.7 }}>
+              <span className="nav-prefix">·</span>
+              <Terminal size={14} className="shrink-0 opacity-80" />
+              <span className="nav-label">recent runs</span>
+              {recentCount > 0 ? <span className="nav-count">{recentCount}</span> : null}
+            </div>
+          </div>
+
+          {externalLinks && externalLinks.length > 0 && (
+            <div className="nav-group">
+              <div className="nav-heading">external</div>
+              {externalLinks.map((link) => (
+                <a
+                  key={link.url}
+                  href={link.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="nav-item"
                 >
-                  <item.icon size={18} className="shrink-0" />
-                  {!collapsed && (
-                    <span className="whitespace-nowrap overflow-hidden">{item.name}</span>
-                  )}
-                </NavLink>
-
-                {/* Separators and External Links Section (at index 0/Pipelines) */}
-                {index === 0 && (
-                  <>
-                    <div className="my-2 border-t border-slate-100 dark:border-slate-800" />
-                    {externalLinks && externalLinks.length > 0 && (
-                      <>
-                        <div className="mt-1 mb-1 space-y-0.5">
-                          {externalLinks.map((link) => (
-                            <a
-                              key={link.url}
-                              href={link.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white transition-all overflow-hidden"
-                              title={collapsed ? link.label : undefined}
-                            >
-                              <ExternalLink size={18} className="shrink-0 opacity-70" />
-                              {!collapsed && (
-                                <span className="whitespace-nowrap overflow-hidden">{link.label}</span>
-                              )}
-                            </a>
-                          ))}
-                        </div>
-                        <div className="my-2 border-t border-slate-100 dark:border-slate-800" />
-                      </>
-                    )}
-                  </>
-                )}
-              </div>
-            ))}
-          </nav>
-        </div>
-
-        {/* Bottom: logout + version */}
-        <div className="p-3 border-t-[1.5px] border-slate-200 dark:border-slate-800 flex flex-col gap-3 overflow-hidden">
-          <button
-            onClick={logout}
-            title={collapsed ? "Logout" : undefined}
-            className="flex w-full items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-red-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-red-400 transition-colors"
-          >
-            <LogOut size={18} className="shrink-0" />
-            {!collapsed && <span className="whitespace-nowrap">Logout</span>}
-          </button>
-
-          {!collapsed && (
-            <div className="px-2 text-xs text-slate-400 dark:text-slate-500 space-y-1">
-              <p>BuildValve v{__APP_VERSION__}</p>
-              <p>&copy; {new Date().getFullYear()} BuildValve contributors</p>
+                  <span className="nav-prefix">·</span>
+                  <ExternalLink size={14} className="shrink-0 opacity-80" />
+                  <span className="nav-label">{link.label}</span>
+                  <span className="nav-ext">↗</span>
+                </a>
+              ))}
             </div>
           )}
-        </div>
-      </div>
 
-      {/* Main Content Area */}
-      <main className="flex-1 flex flex-col h-full relative overflow-y-auto">
-        <div className="p-8 max-w-7xl w-full mx-auto">
-          <Outlet />
+          <div className="nav-group">
+            <div className="nav-heading">account</div>
+            <NavRow to="/profile" icon={User} label="profile" end />
+            {isAdmin && <NavRow to="/admin" icon={Settings} label="admin settings" end />}
+          </div>
         </div>
+
+        <div className="sidebar-footer">
+          <button onClick={logout} className="logout" type="button">
+            <LogOut size={14} />
+            <span>logout</span>
+          </button>
+          <div className="status-row">
+            <span className="status-dot" aria-hidden="true" />
+            <span>api: connected</span>
+          </div>
+          <div>session: {user.email}</div>
+          <div>build: v{__APP_VERSION__}</div>
+          <div>&copy; {new Date().getFullYear()} BuildValve</div>
+        </div>
+      </aside>
+
+      <main className="main">
+        <Outlet />
       </main>
     </div>
   );
