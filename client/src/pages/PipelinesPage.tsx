@@ -43,6 +43,11 @@ function relativeTime(iso?: string | null): string {
 
 const FLOW_DISMISSED_KEY = "buildvalve.flowPanelDismissed";
 
+/** True on macOS (and iPadOS/iOS, which use the ⌘ key on attached keyboards). */
+const IS_MAC =
+  typeof navigator !== "undefined" &&
+  /mac|iphone|ipad|ipod/i.test(navigator.platform || navigator.userAgent);
+
 export function PipelinesPage() {
   const { projects } = useAuth();
   const navigate = useNavigate();
@@ -133,7 +138,7 @@ export function PipelinesPage() {
           placeholder="search projects, pipelines, or refs..."
         />
         <span className="kbd">
-          <span>⌘</span>
+          {IS_MAC ? <span>⌘</span> : <span>Ctrl</span>}
           <span>K</span>
         </span>
       </div>
