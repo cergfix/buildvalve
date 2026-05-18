@@ -4,13 +4,21 @@
 
 **A self-hosted, team-friendly CI/CD pipeline launcher.**
 
-![BuildValve Preview](preview.png)
+![BuildValve dashboard](docs/screenshots/dashboard.png)
 
-### Live Views
+### Views
 
-| Launch Pipeline | Real-time Status | Live Job Logs |
+| Launch a pipeline | Conditional variables | Live run status |
 | :---: | :---: | :---: |
-| ![Launch Pipeline](launch_page.png) | ![Pipeline Run](pipeline_run.png) | ![Job Logs](job_logs.png) |
+| ![Launch](docs/screenshots/launch.png) | ![Conditional](docs/screenshots/launch-conditional.png) | ![Run](docs/screenshots/run.png) |
+
+| Live job logs | Run history | Recent activity |
+| :---: | :---: | :---: |
+| ![Logs](docs/screenshots/logs.png) | ![History](docs/screenshots/history.png) | ![Recent runs](docs/screenshots/recent-runs.png) |
+
+| Login |
+| :---: |
+| ![Login](docs/screenshots/login.png) |
 
 
 BuildValve lets you give your team a simple dashboard of big "Launch" buttons for their CI/CD pipelines across **GitLab**, **GitHub Actions**, and **CircleCI** — without handing out direct access, exposing raw CI variables, or forcing everyone to learn each provider's UI.
