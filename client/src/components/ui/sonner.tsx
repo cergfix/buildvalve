@@ -19,11 +19,11 @@ const Toaster = ({ ...props }: ToasterProps) => {
     <Sonner
       theme="dark"
       icons={{
-        success: <Check className="size-3.5" />,
-        info: <Info className="size-3.5" />,
-        warning: <AlertTriangle className="size-3.5" />,
-        error: <X className="size-3.5" />,
-        loading: <Loader2 className="size-3.5 animate-spin" />,
+        success: <Check className="size-4" />,
+        info: <Info className="size-4" />,
+        warning: <AlertTriangle className="size-4" />,
+        error: <X className="size-4" />,
+        loading: <Loader2 className="size-4 animate-spin" />,
       }}
       toastOptions={{
         unstyled: true,

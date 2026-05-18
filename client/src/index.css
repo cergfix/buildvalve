@@ -1681,19 +1681,19 @@
   position: relative;
   display: grid;
   grid-template-columns: auto 1fr;
-  column-gap: 10px;
-  row-gap: 2px;
+  column-gap: 12px;
+  row-gap: 4px;
   align-items: start;
-  padding: 12px 14px;
+  padding: 16px 18px;
   background: var(--bg-panel);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius);
   color: var(--fg);
   font-family: var(--mono);
-  font-size: 12px;
-  line-height: 1.45;
-  min-width: 260px;
-  max-width: 420px;
+  font-size: 13px;
+  line-height: 1.5;
+  min-width: 340px;
+  max-width: 480px;
   overflow: hidden;
 }
 
@@ -1717,13 +1717,13 @@
   align-items: center;
   justify-content: center;
   color: var(--_tone, var(--fg-mute));
-  margin-top: 1px;
+  margin-top: 2px;
 }
 
 .bv-toast-title {
   grid-column: 2;
   font-weight: 600;
-  font-size: 12px;
+  font-size: 14px;
   letter-spacing: 0.02em;
   color: var(--fg);
 }
@@ -1731,7 +1731,7 @@
 .bv-toast-description {
   grid-column: 2;
   color: var(--fg-mid);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .bv-toast-action,
