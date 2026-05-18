@@ -165,7 +165,13 @@ export function PipelineLaunchPage() {
 
       <SectionHead color="amber">parameters</SectionHead>
 
-      <div className="var-grid">
+      <div
+        className="var-grid"
+        // Size the whole block to the field width + card chrome (52px left
+        // badge gutter + 18px right padding + ~30px breathing room). Falls back
+        // to the .var-grid CSS max-width when nothing computes.
+        style={{ width: `calc(${fieldWidthCh}ch + 100px)` }}
+      >
         {pipeline.variables.length === 0 ? (
           <p className="italic text-fg-mute">No variables configured for this pipeline.</p>
         ) : (
