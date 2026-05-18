@@ -25,6 +25,7 @@ You configure which pipelines are available and who can trigger them. Your team 
 - **No CI accounts needed for users** — service account tokens handle all API calls.
 - **Per-pipeline permissions** — restrict sensitive pipelines to specific users or groups.
 - **Safe variable pre-filling** — lock sensitive variables server-side so users can't override them.
+- **Conditional variables** — show/hide parameters based on other parameter values (`needs`), and the hidden ones never reach the CI provider.
 - **Audit-ready** — structured JSON access logs to stdout for every user action (login, trigger, view, admin).
 - **SSO-native** — integrates with SAML 2.0, GitHub OAuth, Google OAuth, GitLab OAuth, or local accounts.
 - **Live monitoring** — SSE-powered real-time pipeline status and live job log streaming.
@@ -466,6 +467,7 @@ projects:
 | `description` | Help text shown in the launch form |
 | `type` | `text` (default), `select` (dropdown), or `radio` (inline radio buttons) |
 | `options` | Array of allowed values for `select`/`radio` types — server rejects values not in this list |
+| `needs` | Show this variable only when other variables match. Map of `other-key → value(s)`. All keys must match (AND); list values are any-of. Hidden variables are dropped from the CI payload, and `required` only applies when visible. |
 
 **Variable type examples:**
 
@@ -491,6 +493,26 @@ variables:
     locked: false
     type: radio
     options: ["true", "false"]
+
+  # Conditional — only visible (and only sent to the CI provider) when
+  # ENVIRONMENT == "production". Multiple keys combine with AND;
+  # list values are any-of.
+  - key: NOTIFY_STAKEHOLDERS
+    value: "false"
+    locked: false
+    required: true                    # only enforced when visible
+    type: radio
+    options: ["true", "false"]
+    needs:
+      ENVIRONMENT: production
+
+  # Multi-key example — show only when ENV is staging/prod AND DRY_RUN=false
+  - key: ROLLBACK_VERSION
+    value: ""
+    locked: false
+    needs:
+      ENVIRONMENT: [staging, production]
+      DRY_RUN: "false"
 ```
 
 ### Notes

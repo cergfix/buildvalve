@@ -60,11 +60,18 @@ Open http://localhost:5173 in your browser.
 
 3. **Test your changes:**
    ```bash
-   # Server tests
-   cd server && npm test -- --run
+   # Server unit + integration tests
+   npm --prefix server test -- --run
 
-   # Client lint + build
-   cd client && npm run lint && npm run build
+   # Client unit + page tests + lint + build
+   npm --prefix client run lint
+   npm --prefix client test -- --run
+   npm --prefix client run build
+
+   # End-to-end (Playwright, requires a running stack on :3000)
+   # Quick start: `bash dev/start.sh` in another terminal, then:
+   npx --workspace e2e playwright install --with-deps chromium   # first time only
+   npm --workspace e2e test
    ```
 
 4. **Commit** with a clear message describing what changed and why.
@@ -77,6 +84,7 @@ Open http://localhost:5173 in your browser.
 buildvalve/
 ├── server/          # Express backend (TypeScript)
 ├── client/          # React frontend (TypeScript + Vite)
+├── e2e/             # Playwright end-to-end suite (TypeScript)
 ├── config/          # Runtime config (gitignored)
 └── .github/         # CI workflows and templates
 ```
