@@ -117,7 +117,7 @@ export function AppShell() {
                 >
                   <span className="nav-prefix">·</span>
                   <ExternalLink size={14} className="shrink-0 opacity-80" />
-                  <span className="nav-label">{link.label}</span>
+                  <span className="nav-label">{link.label.toLowerCase()}</span>
                   <span className="nav-ext">↗</span>
                 </a>
               ))}

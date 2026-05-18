@@ -67,13 +67,13 @@ describe("AppShell", () => {
     ];
     renderShell();
 
-    const grafanaLink = screen.getByText("Grafana");
+    const grafanaLink = screen.getByText("grafana");
     expect(grafanaLink).toBeInTheDocument();
     expect(grafanaLink.closest("a")).toHaveAttribute("href", "https://grafana.example.com");
     expect(grafanaLink.closest("a")).toHaveAttribute("target", "_blank");
     expect(grafanaLink.closest("a")).toHaveAttribute("rel", "noopener noreferrer");
 
-    const sentryLink = screen.getByText("Sentry");
+    const sentryLink = screen.getByText("sentry");
     expect(sentryLink).toBeInTheDocument();
     expect(sentryLink.closest("a")).toHaveAttribute("href", "https://sentry.example.com");
   });
@@ -81,7 +81,7 @@ describe("AppShell", () => {
   it("does not render external links section when empty", () => {
     mockAuthValue.externalLinks = [];
     renderShell();
-    expect(screen.queryByText("Grafana")).not.toBeInTheDocument();
+    expect(screen.queryByText("grafana")).not.toBeInTheDocument();
   });
 
   it("renders BuildValve branding", () => {
