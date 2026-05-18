@@ -160,7 +160,7 @@ export function PipelineLaunchPage() {
 
       <SectionHead color="amber">parameters</SectionHead>
 
-      <div className="var-grid" style={{ ["--field-width" as string]: `${fieldWidthCh}ch` }}>
+      <div className="var-grid">
         {pipeline.variables.length === 0 ? (
           <p className="italic text-fg-mute">No variables configured for this pipeline.</p>
         ) : (
@@ -171,6 +171,7 @@ export function PipelineLaunchPage() {
               value={vars[vc.key] ?? ""}
               onChange={(val) => handleVarChange(vc.key, val)}
               index={idx}
+              controlWidth={`${fieldWidthCh}ch`}
             />
           ))
         )}

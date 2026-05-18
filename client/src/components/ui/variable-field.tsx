@@ -9,9 +9,11 @@ interface VariableFieldProps {
   value: string;
   onChange: (value: string) => void;
   index: number;
+  /** Optional inline width applied to the input/select control (e.g. "24ch"). */
+  controlWidth?: string;
 }
 
-export function VariableField({ config, value, onChange, index }: VariableFieldProps) {
+export function VariableField({ config, value, onChange, index, controlWidth }: VariableFieldProps) {
   const accent = ACCENT_CYCLE[index % ACCENT_CYCLE.length];
   const isLocked = config.locked;
   const fieldType = config.type ?? "text";
@@ -33,14 +35,16 @@ export function VariableField({ config, value, onChange, index }: VariableFieldP
       )}
 
       {fieldType === "select" && config.options ? (
-        <TechSelect
-          value={value}
-          onChange={onChange}
-          options={config.options}
-          accent={accent}
-          disabled={isLocked}
-          allowEmpty={!config.required}
-        />
+        <div style={controlWidth ? { width: controlWidth, maxWidth: "100%" } : undefined}>
+          <TechSelect
+            value={value}
+            onChange={onChange}
+            options={config.options}
+            accent={accent}
+            disabled={isLocked}
+            allowEmpty={!config.required}
+          />
+        </div>
       ) : fieldType === "radio" && config.options ? (
         <div className="var-options">
           {config.options.map((opt) => (
@@ -62,6 +66,7 @@ export function VariableField({ config, value, onChange, index }: VariableFieldP
           onChange={(e) => onChange(e.target.value)}
           disabled={isLocked}
           placeholder=""
+          style={controlWidth ? { width: controlWidth, maxWidth: "100%" } : undefined}
         />
       )}
     </div>

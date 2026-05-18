@@ -950,9 +950,9 @@
 }
 
 .var-input {
-  /* --field-width is set by PipelineLaunchPage based on the longest displayed value;
-     fall back to 100% if it's not provided. max-width caps it to the card's content area. */
-  width: var(--field-width, 100%);
+  /* PipelineLaunchPage sets the actual width inline via `controlWidth` on
+     VariableField — this 100% is the fallback for other contexts. */
+  width: 100%;
   max-width: 100%;
   background: var(--bg-sunken);
   border: 1px solid var(--border);
@@ -1015,8 +1015,7 @@
 
 .select {
   position: relative;
-  /* Falls back to a narrower default outside the launch form (e.g. inline filters). */
-  width: var(--field-width, 100%);
+  width: 100%;
   max-width: 100%;
 }
 
