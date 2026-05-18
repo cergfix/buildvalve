@@ -175,16 +175,22 @@ export function PipelineLaunchPage() {
         {pipeline.variables.length === 0 ? (
           <p className="italic text-fg-mute">No variables configured for this pipeline.</p>
         ) : (
-          visibleVars.map((vc: VariableConfig, idx: number) => (
-            <VariableField
-              key={vc.key}
-              config={vc}
-              value={vars[vc.key] ?? ""}
-              onChange={(val) => handleVarChange(vc.key, val)}
-              index={idx}
-              controlWidth={`${fieldWidthCh}ch`}
-            />
-          ))
+          visibleVars.map((vc: VariableConfig) => {
+            // index = position in the original config.variables array, not in
+            // the filtered visible list. This keeps each field's badge number
+            // and accent color stable as `needs`-gated variables appear/disappear.
+            const configIndex = pipeline.variables.findIndex((v) => v.key === vc.key);
+            return (
+              <VariableField
+                key={vc.key}
+                config={vc}
+                value={vars[vc.key] ?? ""}
+                onChange={(val) => handleVarChange(vc.key, val)}
+                index={configIndex}
+                controlWidth={`${fieldWidthCh}ch`}
+              />
+            );
+          })
         )}
       </div>
 
