@@ -68,7 +68,10 @@ export function PipelineLaunchPage() {
   /**
    * Auto-fit input width to the longest displayed value across the form so all
    * inputs share one comfortable width instead of stretching to the card edge.
-   * Considers default values, current user values, and select/radio options.
+   * The select trigger eats ~4 extra chars for the chevron icon + gap, so we
+   * pad the budget accordingly to keep the visible content area aligned across
+   * text inputs and selects. Considers default values, current user values, and
+   * select/radio options.
    */
   const fieldWidthCh = useMemo(() => {
     let maxLen = 0;
@@ -78,8 +81,10 @@ export function PipelineLaunchPage() {
         if (c.length > maxLen) maxLen = c.length;
       }
     }
-    // Clamp: floor at 24ch (~ "us-east-1" + padding) and ceiling at 60ch.
-    return Math.min(60, Math.max(24, maxLen + 4));
+    // Clamp: floor at 28ch, ceiling at 64ch. The +8 budget covers the select's
+    // internal chevron (~4ch) plus generous horizontal padding so all controls
+    // end at the same right edge.
+    return Math.min(64, Math.max(28, maxLen + 8));
   }, [visibleVars, vars]);
 
   if (!project || !pipeline) {
