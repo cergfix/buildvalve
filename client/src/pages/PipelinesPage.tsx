@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Search, Play, History } from "lucide-react";
@@ -62,6 +62,22 @@ export function PipelinesPage() {
     } catch { /* ignore — private mode etc. */ }
   }, [flowDismissed]);
 
+  // ⌘K / Ctrl+K → focus the search input. The visible kbd hint in the search
+  // bar advertises this; we wire it up globally so it works from anywhere on
+  // the page.
+  const searchRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
   const { data: recentData } = useQuery({
     queryKey: ["recentPipelines"],
     queryFn: pipelinesApi.getRecent,
@@ -111,6 +127,7 @@ export function PipelinesPage() {
       <div className="search">
         <Search size={14} className="opacity-70" />
         <input
+          ref={searchRef}
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="search projects, pipelines, or refs..."
