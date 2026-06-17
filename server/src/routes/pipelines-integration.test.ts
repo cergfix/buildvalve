@@ -432,6 +432,88 @@ describe("GET /api/pipelines/recent - dashboard heartbeat / sidebar count", () =
   });
 });
 
+// ── /api/pipelines/:projectId/:pipelineId - single run detail ───────────────
+
+describe("GET /api/pipelines/:projectId/:pipelineId - run detail", () => {
+  function makeRunPipeline(id: string): CIPipeline {
+    return {
+      id, provider: "gitlab", project_id: "1", status: "success", ref: "main",
+      sha: "abc", created_at: "2025-01-01T10:00:00Z", updated_at: "2025-01-01T10:05:00Z",
+      web_url: `http://mock-gitlab.local/1/-/pipelines/${id}`,
+    };
+  }
+
+  it("enriches the run detail with the variables it was triggered with", async () => {
+    const ours = new Map<string, any>([
+      [
+        "100",
+        {
+          projectId: "1", pipelineName: "deploy-all", ref: "main", runId: "100",
+          triggeredAt: Date.now(), triggeredByEmail: "alice@co.com",
+          variables: { ENV: "prod" },
+        },
+      ],
+    ]);
+    const fakeStore = {
+      record: vi.fn(), listRecent: vi.fn(),
+      listRecentByProject: vi.fn().mockResolvedValue(ours),
+      prune: vi.fn(), close: vi.fn(),
+    };
+    const routerWithStore = createPipelineRouter(config, fakeStore as any);
+    const handler = findHandler(routerWithStore, "get", "/api/pipelines/:projectId/:pipelineId");
+    const { req, res } = mockReqRes(
+      { email: "alice@co.com", provider: "mock" }, undefined, { projectId: "1", pipelineId: "100" },
+    );
+    vi.spyOn(mockProvider, "getPipeline").mockResolvedValue(makeRunPipeline("100"));
+    vi.spyOn(mockProvider, "getPipelineJobs").mockResolvedValue([]);
+
+    await handler(req, res);
+
+    const body = res.json.mock.calls[0][0];
+    expect(body.pipeline.id).toBe("100");
+    expect(body.triggered_variables).toEqual({ ENV: "prod" });
+    expect(body.triggered_pipeline_name).toBe("deploy-all");
+    expect(fakeStore.listRecentByProject).toHaveBeenCalledWith("1", 500);
+  });
+
+  it("omits triggered variables when the run is not in the store", async () => {
+    const fakeStore = {
+      record: vi.fn(), listRecent: vi.fn(),
+      listRecentByProject: vi.fn().mockResolvedValue(new Map()),
+      prune: vi.fn(), close: vi.fn(),
+    };
+    const routerWithStore = createPipelineRouter(config, fakeStore as any);
+    const handler = findHandler(routerWithStore, "get", "/api/pipelines/:projectId/:pipelineId");
+    const { req, res } = mockReqRes(
+      { email: "alice@co.com", provider: "mock" }, undefined, { projectId: "1", pipelineId: "777" },
+    );
+    vi.spyOn(mockProvider, "getPipeline").mockResolvedValue(makeRunPipeline("777"));
+    vi.spyOn(mockProvider, "getPipelineJobs").mockResolvedValue([]);
+
+    await handler(req, res);
+
+    const body = res.json.mock.calls[0][0];
+    expect(body.pipeline.id).toBe("777");
+    expect(body.triggered_variables).toBeUndefined();
+    expect(body.triggered_pipeline_name).toBeUndefined();
+  });
+
+  it("still returns the run detail when no triggered_runs store is wired", async () => {
+    const handler = findHandler(router, "get", "/api/pipelines/:projectId/:pipelineId");
+    const { req, res } = mockReqRes(
+      { email: "alice@co.com", provider: "mock" }, undefined, { projectId: "1", pipelineId: "100" },
+    );
+    vi.spyOn(mockProvider, "getPipeline").mockResolvedValue(makeRunPipeline("100"));
+    vi.spyOn(mockProvider, "getPipelineJobs").mockResolvedValue([]);
+
+    await handler(req, res);
+
+    const body = res.json.mock.calls[0][0];
+    expect(body.pipeline.id).toBe("100");
+    expect(body.triggered_variables).toBeUndefined();
+  });
+});
+
 // ── /api/pipelines/:projectId/history ──────────────────────────────────────
 
 describe("GET /api/pipelines/:projectId/history - filtered run history", () => {

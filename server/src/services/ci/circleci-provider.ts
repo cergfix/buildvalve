@@ -1,6 +1,22 @@
 import type { CIProvider, CIPipeline, CIJob } from "./types.js";
 import { CIProviderError } from "./types.js";
 
+/**
+ * Strip ANSI escape sequences (SGR color codes, cursor moves, OSC, etc.) from
+ * log text. CircleCI's web UI interprets these and renders colors; BuildValve's
+ * terminal prints text verbatim, so without stripping, tools like fastlane that
+ * emit heavily-colored output show up as garbage ("←[32m★ …"). Pattern is the
+ * canonical ansi-regex matcher (CSI + OSC forms).
+ */
+const ANSI_RE = new RegExp(
+  "[\\u001B\\u009B][[\\]()#;?]*(?:(?:(?:(?:;[-a-zA-Z\\d/#&.:=?%@~_]+)*|[a-zA-Z\\d]+(?:;[-a-zA-Z\\d/#&.:=?%@~_]*)*)?\\u0007)|(?:(?:\\d{1,4}(?:;\\d{0,4})*)?[\\dA-PR-TZcf-ntqry=><~]))",
+  "g",
+);
+
+function stripAnsi(text: string): string {
+  return text.replace(ANSI_RE, "");
+}
+
 export class CircleCIProvider implements CIProvider {
   readonly type = "circleci" as const;
   readonly name: string;
@@ -188,7 +204,7 @@ export class CircleCIProvider implements CIProvider {
         output += "\n";
       }
 
-      return output || "No log output available.";
+      return stripAnsi(output) || "No log output available.";
     } catch (e) {
       return `Could not fetch logs from CircleCI (${(e as Error).message}). View logs at the CircleCI web UI.`;
     }

@@ -1,17 +1,75 @@
-import { useRef, useEffect, useMemo } from "react";
+import { useRef, useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { useLogStream } from "../hooks/useSSE";
+import { pipelinesApi, relaunchVariables } from "../api/queries";
+import { useAuth } from "../contexts/AuthContext";
 import { Crumb } from "../components/ui/crumb";
 import { PageHead } from "../components/ui/page-head";
+import { Btn } from "../components/ui/btn";
 import { SseIndicator } from "../components/ui/sse-indicator";
 import { Terminal as TerminalPanel, TerminalLine } from "../components/ui/terminal";
-import { Terminal as TerminalIcon } from "lucide-react";
+import { Terminal as TerminalIcon, ExternalLink, Rocket, RotateCcw } from "lucide-react";
 
 export function PipelineLogsPage() {
   const { projectId, pipelineName, runId, jobId } = useParams();
   const navigate = useNavigate();
+  const { projects } = useAuth();
 
   const { logs, isConnected, isDone } = useLogStream(projectId!, jobId!, runId);
+
+  // Resolve the job's CI web URL so we can link out to the source pipeline.
+  // Reuses the same query key the run page populates, so this is usually a
+  // cache hit when navigating here from the run view.
+  const { data: runData } = useQuery({
+    queryKey: ["pipelineRun", projectId, runId],
+    queryFn: () => pipelinesApi.getPipeline(projectId!, runId!),
+    staleTime: Infinity,
+    enabled: !!projectId && !!runId,
+  });
+  const jobWebUrl = runData?.jobs.find((j) => j.id === jobId)?.web_url;
+
+  const launchHref = `/project/${encodeURIComponent(projectId!)}/pipeline/${encodeURIComponent(pipelineName!)}`;
+  const pipelineConfig = projects
+    ?.find((p) => p.id === projectId)
+    ?.pipelines.find((p) => p.name === pipelineName);
+
+  // Relaunch the pipeline with the same parameters this run used (see run page).
+  const relaunchMutation = useMutation({
+    mutationFn: () =>
+      pipelinesApi.trigger(
+        projectId!,
+        pipelineName!,
+        relaunchVariables(pipelineConfig?.variables, runData?.triggered_variables)
+      ),
+    onSuccess: (resp) => {
+      toast.success("Pipeline launched again with the same parameters");
+      navigate(`${launchHref}/run/${resp.id}`);
+    },
+    onError: (err: Error) => {
+      toast.error("Could not launch pipeline again", { description: err.message });
+    },
+  });
+
+  // Two-step confirm so a stray click doesn't kick off a fresh pipeline run.
+  const [relaunchConfirming, setRelaunchConfirming] = useState(false);
+  const relaunchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (relaunchTimerRef.current) clearTimeout(relaunchTimerRef.current);
+  }, []);
+
+  const handleRelaunchClick = () => {
+    if (!relaunchConfirming) {
+      setRelaunchConfirming(true);
+      if (relaunchTimerRef.current) clearTimeout(relaunchTimerRef.current);
+      relaunchTimerRef.current = setTimeout(() => setRelaunchConfirming(false), 4000);
+      return;
+    }
+    if (relaunchTimerRef.current) clearTimeout(relaunchTimerRef.current);
+    setRelaunchConfirming(false);
+    relaunchMutation.mutate();
+  };
 
   const bodyRef = useRef<HTMLDivElement>(null);
   // Track whether the user is currently pinned to the bottom. If yes, follow
@@ -65,6 +123,17 @@ export function PipelineLogsPage() {
         title={
           <>
             build <span className="muted">#{jobId}</span>
+            {jobWebUrl ? (
+              <a
+                href={jobWebUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="external"
+                aria-label="open job in provider"
+              >
+                <ExternalLink size={18} />
+              </a>
+            ) : null}
           </>
         }
         slashed
@@ -73,6 +142,29 @@ export function PipelineLogsPage() {
             running in pipeline for <span className="text-fg">{pipelineName}</span> · live-tailing job output.
             Connection retries automatically.
           </>
+        }
+        action={
+          // Only offer launch actions once this run has finished — while it's
+          // still live-streaming there's nothing to re-launch yet.
+          isDone ? (
+            <div className="run-head-actions">
+              <Btn variant="default" icon={<Rocket size={12} />} onClick={() => navigate(launchHref)}>
+                new launch
+              </Btn>
+              <Btn
+                variant="primary"
+                icon={<RotateCcw size={12} />}
+                onClick={handleRelaunchClick}
+                disabled={relaunchMutation.isPending}
+              >
+                {relaunchMutation.isPending
+                  ? "launching again…"
+                  : relaunchConfirming
+                    ? "confirm launch"
+                    : "launch again"}
+              </Btn>
+            </div>
+          ) : undefined
         }
       />
 

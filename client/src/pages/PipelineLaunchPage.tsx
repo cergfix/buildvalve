@@ -10,7 +10,7 @@ import { PageHead } from "../components/ui/page-head";
 import { SectionHead } from "../components/ui/section-head";
 import { Chip } from "../components/ui/chip";
 import { Btn } from "../components/ui/btn";
-import { VariableField } from "../components/ui/variable-field";
+import { VariableField, cardWidthPx } from "../components/ui/variable-field";
 
 /**
  * Mirror of server-side needsSatisfied — keep in sync with
@@ -66,26 +66,20 @@ export function PipelineLaunchPage() {
   }, [pipeline, vars]);
 
   /**
-   * Auto-fit input width to the longest displayed value across the form so all
-   * inputs share one comfortable width instead of stretching to the card edge.
-   * The select trigger eats ~4 extra chars for the chevron icon + gap, so we
-   * pad the budget accordingly to keep the visible content area aligned across
-   * text inputs and selects. Considers default values, current user values, and
-   * select/radio options.
+   * One shared card width per nesting level so cards at the same level line up.
+   * Each level's width is the max its members need (compact minimum, grown to
+   * fit the longest key). Computed from ALL variables of that level — not just
+   * the visible ones — so a level's width is stable as `needs`-gated cards
+   * appear/disappear, and level 0 never resizes when level 1 toggles.
    */
-  const fieldWidthCh = useMemo(() => {
-    let maxLen = 0;
-    for (const vc of visibleVars) {
-      const candidates = [vc.value ?? "", vars[vc.key] ?? "", ...(vc.options ?? [])];
-      for (const c of candidates) {
-        if (c.length > maxLen) maxLen = c.length;
-      }
+  const levelWidths = useMemo(() => {
+    const widths = { 0: 0, 1: 0 };
+    for (const vc of pipeline?.variables ?? []) {
+      const level = vc.needs && Object.keys(vc.needs).length > 0 ? 1 : 0;
+      widths[level] = Math.max(widths[level], cardWidthPx(vc.key, !!vc.locked));
     }
-    // Clamp: floor at 28ch, ceiling at 64ch. The +8 budget covers the select's
-    // internal chevron (~4ch) plus generous horizontal padding so all controls
-    // end at the same right edge.
-    return Math.min(64, Math.max(28, maxLen + 8));
-  }, [visibleVars, vars]);
+    return widths;
+  }, [pipeline]);
 
   if (!project || !pipeline) {
     return <div className="text-fg-mute italic">Pipeline not found.</div>;
@@ -165,13 +159,7 @@ export function PipelineLaunchPage() {
 
       <SectionHead color="amber">parameters</SectionHead>
 
-      <div
-        className="var-grid"
-        // Size the whole block to the field width + card chrome (52px left
-        // badge gutter + 18px right padding + ~30px breathing room). Falls back
-        // to the .var-grid CSS max-width when nothing computes.
-        style={{ width: `calc(${fieldWidthCh}ch + 100px)` }}
-      >
+      <div className="var-grid">
         {pipeline.variables.length === 0 ? (
           <p className="italic text-fg-mute">No variables configured for this pipeline.</p>
         ) : (
@@ -180,6 +168,7 @@ export function PipelineLaunchPage() {
             // the filtered visible list. This keeps each field's badge number
             // and accent color stable as `needs`-gated variables appear/disappear.
             const configIndex = pipeline.variables.findIndex((v) => v.key === vc.key);
+            const level = vc.needs && Object.keys(vc.needs).length > 0 ? 1 : 0;
             return (
               <VariableField
                 key={vc.key}
@@ -187,7 +176,7 @@ export function PipelineLaunchPage() {
                 value={vars[vc.key] ?? ""}
                 onChange={(val) => handleVarChange(vc.key, val)}
                 index={configIndex}
-                controlWidth={`${fieldWidthCh}ch`}
+                width={levelWidths[level]}
               />
             );
           })

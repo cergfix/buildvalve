@@ -41,6 +41,10 @@ export interface PipelineRunDetail {
     provider?: CIProviderType;
   };
   jobs: CIJobDetail[];
+  /** Variables this run was triggered with (only for BuildValve-triggered runs). */
+  triggered_variables?: Record<string, string>;
+  /** Pipeline config name this run was triggered from (only for BV-triggered runs). */
+  triggered_pipeline_name?: string;
 }
 
 export interface PipelineHistoryEntry {

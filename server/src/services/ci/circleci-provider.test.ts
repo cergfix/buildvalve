@@ -269,6 +269,27 @@ describe("CircleCIProvider", () => {
       const result = await provider.getJobTrace("gh/org/repo", "100");
       expect(result).toContain("plain text log line");
     });
+
+    it("strips ANSI escape codes but preserves unicode characters", async () => {
+      fetchSpy.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            steps: [
+              { name: "Run", actions: [{ output_url: "https://example.com/log", status: "success" }] },
+            ],
+          }),
+          { status: 200 }
+        )
+      );
+      // fastlane-style colored output: SGR codes around a unicode star bullet.
+      fetchSpy.mockResolvedValueOnce(
+        new Response("[32m★ [match] nuke respects[0m\n", { status: 200 })
+      );
+
+      const result = await provider.getJobTrace("gh/org/repo", "100");
+      expect(result).toContain("★ [match] nuke respects");
+      expect(result).not.toContain("");
+    });
   });
 
   describe("status normalization", () => {

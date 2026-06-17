@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { screen } from "@testing-library/react";
+import { screen, fireEvent, waitFor } from "@testing-library/react";
 import { renderWithProviders } from "../test-utils";
 import { PipelineLogsPage } from "./PipelineLogsPage";
 
@@ -9,6 +9,20 @@ const mockUseLogStream = vi.fn();
 
 vi.mock("../hooks/useSSE", () => ({
   useLogStream: () => mockUseLogStream(),
+}));
+
+const mockGetPipeline = vi.fn();
+const mockTrigger = vi.fn();
+
+vi.mock("../contexts/AuthContext", () => ({
+  useAuth: () => ({ projects: [{ id: "p1", name: "Backend", pipelines: [{ name: "Deploy", variables: [] }] }] }),
+}));
+vi.mock("../api/queries", () => ({
+  pipelinesApi: {
+    getPipeline: (...args: unknown[]) => mockGetPipeline(...args),
+    trigger: (...args: unknown[]) => mockTrigger(...args),
+  },
+  relaunchVariables: () => ({}),
 }));
 
 vi.mock("react-router-dom", async (importOriginal) => {
@@ -22,6 +36,10 @@ vi.mock("react-router-dom", async (importOriginal) => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockGetPipeline.mockResolvedValue({
+    pipeline: { id: "999", status: "running", web_url: "https://ci.example.com/pipelines/999" },
+    jobs: [{ id: "1002", web_url: "https://ci.example.com/pipelines/999/jobs/1002" }],
+  });
 });
 
 describe("PipelineLogsPage", () => {
@@ -73,5 +91,37 @@ describe("PipelineLogsPage", () => {
     mockUseLogStream.mockReturnValue({ logs: "x\n", isConnected: true, isDone: false });
     renderWithProviders(<PipelineLogsPage />);
     expect(screen.getByText("live")).toBeInTheDocument();
+  });
+
+  it("offers new launch and relaunch actions (once done) and re-triggers on relaunch", async () => {
+    mockUseLogStream.mockReturnValue({ logs: "x\n", isConnected: false, isDone: true });
+    mockTrigger.mockResolvedValue({ id: "2000" });
+
+    renderWithProviders(<PipelineLogsPage />);
+    expect(await screen.findByRole("button", { name: /new launch/i })).toBeInTheDocument();
+    const relaunch = screen.getByRole("button", { name: /launch again/i });
+
+    // First click arms the confirm; second click fires the relaunch.
+    fireEvent.click(relaunch);
+    expect(relaunch).toHaveTextContent(/confirm launch/i);
+    expect(mockTrigger).not.toHaveBeenCalled();
+
+    fireEvent.click(relaunch);
+    await waitFor(() => expect(mockTrigger).toHaveBeenCalledWith("p1", "Deploy", {}));
+  });
+
+  it("hides launch actions while the run is still streaming", () => {
+    mockUseLogStream.mockReturnValue({ logs: "x\n", isConnected: true, isDone: false });
+    renderWithProviders(<PipelineLogsPage />);
+    expect(screen.queryByRole("button", { name: /new launch/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /launch again/i })).toBeNull();
+  });
+
+  it("links out to the job's CI url once the run data resolves", async () => {
+    mockUseLogStream.mockReturnValue({ logs: "x\n", isConnected: true, isDone: false });
+    renderWithProviders(<PipelineLogsPage />);
+    const link = await screen.findByLabelText(/open job in provider/i);
+    expect(link).toHaveAttribute("href", "https://ci.example.com/pipelines/999/jobs/1002");
+    expect(link).toHaveAttribute("target", "_blank");
   });
 });
