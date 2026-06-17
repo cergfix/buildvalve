@@ -334,7 +334,35 @@ export function createPipelineRouter(config: AppConfig, triggeredRuns?: Triggere
         provider.getPipelineJobs(project.external_id, pipelineId),
       ]);
       access(user, "pipeline_viewed", { project_id: projectId, pipeline_id: pipelineId });
-      res.json({ pipeline, jobs });
+
+      // Surface the variables this run was triggered with (when BuildValve
+      // triggered it) so the run/logs pages can offer a one-click "relaunch
+      // with the same parameters".
+      let triggeredVariables: Record<string, string> | undefined;
+      let triggeredPipelineName: string | undefined;
+      if (triggeredRuns) {
+        try {
+          const ours = await triggeredRuns.listRecentByProject(projectId, 500);
+          const meta = ours.get(pipelineId);
+          if (meta) {
+            triggeredVariables = meta.variables;
+            triggeredPipelineName = meta.pipelineName;
+          }
+        } catch (storeErr) {
+          logger.warn("failed to load triggered-run metadata for run detail", {
+            error: storeErr,
+            projectId,
+            pipelineId,
+          });
+        }
+      }
+
+      res.json({
+        pipeline,
+        jobs,
+        triggered_variables: triggeredVariables,
+        triggered_pipeline_name: triggeredPipelineName,
+      });
     } catch (err) {
       if (err instanceof CIProviderError) {
         res.status(err.status >= 500 ? 502 : err.status).json({

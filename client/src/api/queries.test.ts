@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { authApi, pipelinesApi, adminApi } from "./queries";
+import { authApi, pipelinesApi, adminApi, relaunchVariables } from "./queries";
 
 // Mock the client module to capture calls
 vi.mock("./client", () => ({
@@ -69,5 +69,26 @@ describe("adminApi", () => {
   it("getConfig calls correct endpoint", async () => {
     await adminApi.getConfig();
     expect(fetchApi).toHaveBeenCalledWith("/api/admin/config");
+  });
+});
+
+describe("relaunchVariables", () => {
+  const variables = [
+    { key: "DRY_RUN", value: "true", locked: false },
+    { key: "ENVIRONMENT", value: "test", locked: true },
+  ];
+
+  it("resubmits non-locked vars from the prior run", () => {
+    expect(relaunchVariables(variables, { DRY_RUN: "false", ENVIRONMENT: "prod" })).toEqual({
+      DRY_RUN: "false",
+    });
+  });
+
+  it("drops locked vars and keys not present in the config", () => {
+    expect(relaunchVariables(variables, { ENVIRONMENT: "prod", GONE: "x" })).toEqual({});
+  });
+
+  it("returns {} when prior variables are unknown", () => {
+    expect(relaunchVariables(variables, undefined)).toEqual({});
   });
 });

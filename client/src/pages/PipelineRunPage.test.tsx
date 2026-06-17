@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, fireEvent } from "@testing-library/react";
 import { renderWithProviders, makeAuthValue, type MockAuthValue } from "../test-utils";
 import { PipelineRunPage } from "./PipelineRunPage";
 
@@ -7,11 +7,16 @@ import { PipelineRunPage } from "./PipelineRunPage";
 
 let mockAuth: MockAuthValue;
 const mockGetPipeline = vi.fn();
+const mockTrigger = vi.fn();
 const mockUsePipelineStream = vi.fn();
 
 vi.mock("../contexts/AuthContext", () => ({ useAuth: () => mockAuth }));
 vi.mock("../api/queries", () => ({
-  pipelinesApi: { getPipeline: (...a: unknown[]) => mockGetPipeline(...a) },
+  pipelinesApi: {
+    getPipeline: (...a: unknown[]) => mockGetPipeline(...a),
+    trigger: (...a: unknown[]) => mockTrigger(...a),
+  },
+  relaunchVariables: () => ({}),
 }));
 vi.mock("../hooks/useSSE", () => ({
   usePipelineStream: () => mockUsePipelineStream(),
@@ -137,5 +142,46 @@ describe("PipelineRunPage", () => {
     expect(container.querySelector(".jobs-table .job-name")?.textContent).toContain("checkout");
     // Duration formatted as "5s" for the 5s job.
     expect(screen.getByText("5s")).toBeInTheDocument();
+  });
+
+  it("shows relaunch + new launch on a finished run and re-triggers", async () => {
+    mockGetPipeline.mockResolvedValue({
+      pipeline: {
+        id: "1554", status: "success", ref: "main", web_url: "x",
+        created_at: "2025-01-01T00:00:00Z", updated_at: "2025-01-01T00:00:30Z",
+      },
+      jobs: makeJobs(false),
+    });
+    mockUsePipelineStream.mockReturnValue({ data: undefined, isConnected: false });
+    mockTrigger.mockResolvedValue({ id: "1600" });
+
+    renderWithProviders(<PipelineRunPage />);
+    expect(await screen.findByRole("button", { name: /new launch/i })).toBeInTheDocument();
+    const relaunch = screen.getByRole("button", { name: /launch again/i });
+
+    // First click only arms the confirm — it must NOT trigger yet.
+    fireEvent.click(relaunch);
+    expect(relaunch).toHaveTextContent(/confirm launch/i);
+    expect(mockTrigger).not.toHaveBeenCalled();
+
+    // Second click within the window fires the relaunch.
+    fireEvent.click(relaunch);
+    await waitFor(() => expect(mockTrigger).toHaveBeenCalledWith("p1", "Deploy", {}));
+  });
+
+  it("hides relaunch and shows stop while the run is in progress", async () => {
+    mockGetPipeline.mockResolvedValue({
+      pipeline: {
+        id: "1", status: "running", ref: "main", web_url: "x",
+        created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+      },
+      jobs: makeJobs(true),
+    });
+    mockUsePipelineStream.mockReturnValue({ data: undefined, isConnected: true });
+
+    renderWithProviders(<PipelineRunPage />);
+    await waitFor(() => expect(screen.getByRole("button", { name: /stop run/i })).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: /launch again/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /new launch/i })).toBeNull();
   });
 });

@@ -298,6 +298,20 @@
  * Page chrome (crumb, page-head, section-head)
  * ─────────────────────────────────────────────────────────────── */
 
+/* Back-link row that also hosts the launch/stop actions on the left, so
+   they sit a short cursor hop from navigation while relaunching builds. */
+.crumb-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.crumb-row .crumb {
+  margin-bottom: 0;
+}
+
 .crumb {
   font-size: 11px;
   color: var(--fg-mute);
@@ -377,6 +391,19 @@
   color: var(--fg-mute);
   font-weight: 600;
 }
+
+.page-title .external {
+  font-size: 18px;
+  color: var(--fg-mute);
+  cursor: pointer;
+  transition: color 0.12s;
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  margin-left: 12px;
+}
+
+.page-title .external:hover { color: var(--fg); }
 
 .page-sub {
   color: var(--fg-mid);
@@ -873,11 +900,16 @@
 .var-grid {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 12px;
-  max-width: 720px;
+  max-width: 100%;
 }
 
 .var-field {
+  /* Width is set per-card inline (see variable-field-width.ts): a compact
+     minimum that grows to fit a long variable name. Depends only on the card's
+     own key, so level-0 cards never resize when nested cards appear. */
+  max-width: 100%;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
   background: var(--bg-panel);
@@ -898,8 +930,9 @@
 .var-field[data-accent="violet"]  { --_accent: var(--violet);  --_accent-dim: var(--violet-dim);  border-color: rgba(167, 139, 250, 0.32); }
 .var-field[data-accent="sky"]     { --_accent: var(--sky);     --_accent-dim: var(--sky-dim);     border-color: rgba(56, 189, 248, 0.32); }
 
-/* Fields gated by `needs:` indent slightly to visually nest under the
-   parameter that drives their visibility. */
+/* Fields gated by `needs:` indent to visually nest under the parameter that
+   drives their visibility. Their width comes from the per-card budget above
+   (they carry the long keys, so they grow to fit them). */
 .var-field[data-nested="true"] {
   margin-left: 28px;
 }
@@ -925,14 +958,22 @@
   font-weight: 600;
   color: var(--fg);
   display: flex;
-  align-items: center;
-  gap: 10px;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
   margin-bottom: 4px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 
+/* Keep long keys (e.g. APPD_AWS_MAINTENANCE__ANSIBLE_TAGS_2) on a single line;
+   the card is sized to fit the longest key (see PipelineLaunchPage). */
+.var-key > span:first-child {
+  white-space: nowrap;
+}
+
 .var-locked {
+  flex: none;
   font-size: 9px;
   letter-spacing: 0.12em;
   color: var(--rose);
@@ -949,9 +990,18 @@
   margin-bottom: 10px;
 }
 
+/* Static control widths per nesting level (the select wrapper carries
+   `.var-control`; text inputs carry both `.var-input` and `.var-control`).
+   Scoped under `.var-field` so they out-specify the `.var-input { width:100% }`
+   default that other forms (e.g. login) rely on. */
+.var-field .var-control {
+  width: 300px;
+  max-width: 100%;
+}
+
 .var-input {
-  /* PipelineLaunchPage sets the actual width inline via `controlWidth` on
-     VariableField — this 100% is the fallback for other contexts. */
+  /* Full width by default (login form); the launch page narrows it via
+     `.var-field .var-control` above. */
   width: 100%;
   max-width: 100%;
   background: var(--bg-sunken);
@@ -968,6 +1018,18 @@
 .var-input:focus {
   border-color: var(--_accent, var(--emerald));
   box-shadow: 0 0 0 3px var(--_accent-dim, var(--emerald-dim));
+}
+
+/* Keep autofilled inputs on the dark theme instead of the browser's default
+   pale-yellow fill. The inset shadow paints over the UA background; the long
+   transition defers the UA's re-paint indefinitely. */
+.var-input:-webkit-autofill,
+.var-input:-webkit-autofill:hover,
+.var-input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--fg);
+  -webkit-box-shadow: 0 0 0 1000px var(--bg-sunken) inset;
+  caret-color: var(--fg);
+  transition: background-color 600000s 0s, color 600000s 0s;
 }
 
 .var-input:disabled {

@@ -95,6 +95,31 @@ describe("VariableField", () => {
     expect(onChange).toHaveBeenCalledWith("false");
   });
 
+  it("keeps short-named cards at the minimum width", () => {
+    const { container } = render(
+      <VariableField config={{ key: "DRY_RUN", value: "", locked: false }} value="" onChange={() => {}} index={0} />
+    );
+    const card = container.querySelector(".var-field") as HTMLElement;
+    expect(card.style.width).toBe("404px");
+  });
+
+  it("grows the card width to fit a long variable name", () => {
+    const longKey = "APPD_AWS_MAINTENANCE__ANSIBLE_TAGS_DEPLOYMENT_GROUP";
+    const { container } = render(
+      <VariableField config={{ key: longKey, value: "", locked: false }} value="" onChange={() => {}} index={0} />
+    );
+    const card = container.querySelector(".var-field") as HTMLElement;
+    expect(parseInt(card.style.width, 10)).toBeGreaterThan(404);
+  });
+
+  it("uses the supplied shared level width over its own key", () => {
+    const { container } = render(
+      <VariableField config={{ key: "DRY_RUN", value: "", locked: false }} value="" onChange={() => {}} index={0} width={520} />
+    );
+    const card = container.querySelector(".var-field") as HTMLElement;
+    expect(card.style.width).toBe("520px");
+  });
+
   it("renders the description text when provided", () => {
     render(
       <VariableField

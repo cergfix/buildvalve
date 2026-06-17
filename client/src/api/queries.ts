@@ -1,5 +1,5 @@
 import { fetchApi } from "./client";
-import type { AuthUser, ProjectConfig, AppConfig } from "../../../server/src/types";
+import type { AuthUser, ProjectConfig, AppConfig, VariableConfig } from "../../../server/src/types";
 import type { RecentProjectPipelines, TriggerResponse, PipelineRunDetail, PipelineHistoryEntry } from "./types";
 
 export type { RecentProjectPipelines, TriggerResponse, PipelineRunDetail, PipelineHistoryEntry };
@@ -46,3 +46,23 @@ export const pipelinesApi = {
 export const adminApi = {
   getConfig: () => fetchApi<AppConfig>("/api/admin/config"),
 };
+
+/**
+ * Build the variables payload for a one-click relaunch from a prior run's
+ * recorded variables. Locked variables are dropped (the server re-injects them
+ * from config, and submitting them risks an "is locked" rejection if config
+ * changed); only non-locked keys that still exist in the pipeline config are
+ * resubmitted. Returns {} when the prior variables are unknown, which the
+ * server treats as a defaults launch.
+ */
+export function relaunchVariables(
+  variables: VariableConfig[] | undefined,
+  triggered: Record<string, string> | undefined
+): Record<string, string> {
+  if (!triggered || !variables) return {};
+  const out: Record<string, string> = {};
+  for (const vc of variables) {
+    if (!vc.locked && vc.key in triggered) out[vc.key] = triggered[vc.key];
+  }
+  return out;
+}

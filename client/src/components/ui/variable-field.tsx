@@ -1,5 +1,6 @@
 import type { VariableConfig } from "../../../../server/src/types";
 import { TechSelect } from "./tech-select";
+import { cardWidthPx } from "./variable-field-width";
 
 type Accent = "emerald" | "amber" | "violet" | "sky";
 const ACCENT_CYCLE: Accent[] = ["emerald", "amber", "violet", "sky"];
@@ -9,18 +10,23 @@ interface VariableFieldProps {
   value: string;
   onChange: (value: string) => void;
   index: number;
-  /** Optional inline width applied to the input/select control (e.g. "24ch"). */
-  controlWidth?: string;
+  /** Shared width (px) for this card's nesting level; falls back to own key. */
+  width?: number;
 }
 
-export function VariableField({ config, value, onChange, index, controlWidth }: VariableFieldProps) {
+export function VariableField({ config, value, onChange, index, width }: VariableFieldProps) {
   const accent = ACCENT_CYCLE[index % ACCENT_CYCLE.length];
   const isLocked = config.locked;
   const fieldType = config.type ?? "text";
   const isNested = !!config.needs && Object.keys(config.needs).length > 0;
 
   return (
-    <div className="var-field" data-accent={accent} data-nested={isNested ? "true" : undefined}>
+    <div
+      className="var-field"
+      data-accent={accent}
+      data-nested={isNested ? "true" : undefined}
+      style={{ width: width ?? cardWidthPx(config.key, isLocked), maxWidth: "100%" }}
+    >
       <div className="var-num">{String(index + 1).padStart(2, "0")}</div>
       <div className="var-key">
         <span>{config.key}</span>
@@ -35,7 +41,7 @@ export function VariableField({ config, value, onChange, index, controlWidth }: 
       )}
 
       {fieldType === "select" && config.options ? (
-        <div style={controlWidth ? { width: controlWidth, maxWidth: "100%" } : undefined}>
+        <div className="var-control">
           <TechSelect
             value={value}
             onChange={onChange}
@@ -61,12 +67,11 @@ export function VariableField({ config, value, onChange, index, controlWidth }: 
         </div>
       ) : (
         <input
-          className="var-input"
+          className="var-input var-control"
           value={value}
           onChange={(e) => onChange(e.target.value)}
           disabled={isLocked}
           placeholder=""
-          style={controlWidth ? { width: controlWidth, maxWidth: "100%" } : undefined}
         />
       )}
     </div>

@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ExternalLink, Loader2, OctagonX, Terminal } from "lucide-react";
+import { ExternalLink, Loader2, OctagonX, Rocket, RotateCcw, Terminal } from "lucide-react";
 import { toast } from "sonner";
-import { pipelinesApi } from "../api/queries";
+import { pipelinesApi, relaunchVariables } from "../api/queries";
 import { usePipelineStream } from "../hooks/useSSE";
 import type { CIJobDetail } from "../api/types";
 import { useAuth } from "../contexts/AuthContext";
@@ -87,9 +87,14 @@ export function PipelineRunPage() {
   // request. Guards against misclicks on a long-running deploy.
   const [confirming, setConfirming] = useState(false);
   const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Same two-step confirm for "launch again" so a stray click doesn't kick off
+  // a fresh pipeline run.
+  const [relaunchConfirming, setRelaunchConfirming] = useState(false);
+  const relaunchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => () => {
     if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
+    if (relaunchTimerRef.current) clearTimeout(relaunchTimerRef.current);
   }, []);
 
   const cancelMutation = useMutation({
@@ -103,6 +108,29 @@ export function PipelineRunPage() {
     },
   });
 
+  const pipelineConfig = project?.pipelines.find((p) => p.name === pipelineName);
+
+  const launchHref = `/project/${encodeURIComponent(projectId!)}/pipeline/${encodeURIComponent(pipelineName!)}`;
+
+  // Relaunch re-triggers the pipeline with the same parameters this run used
+  // (recorded server-side as triggered_variables; locked vars re-injected from
+  // config). Falls back to config defaults when the prior variables are unknown.
+  const relaunchMutation = useMutation({
+    mutationFn: () =>
+      pipelinesApi.trigger(
+        projectId!,
+        pipelineName!,
+        relaunchVariables(pipelineConfig?.variables, data?.triggered_variables)
+      ),
+    onSuccess: (resp) => {
+      toast.success("Pipeline launched again with the same parameters");
+      navigate(`${launchHref}/run/${resp.id}`);
+    },
+    onError: (err: Error) => {
+      toast.error("Could not launch pipeline again", { description: err.message });
+    },
+  });
+
   const handleStopClick = () => {
     if (!confirming) {
       setConfirming(true);
@@ -113,6 +141,18 @@ export function PipelineRunPage() {
     if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
     setConfirming(false);
     cancelMutation.mutate();
+  };
+
+  const handleRelaunchClick = () => {
+    if (!relaunchConfirming) {
+      setRelaunchConfirming(true);
+      if (relaunchTimerRef.current) clearTimeout(relaunchTimerRef.current);
+      relaunchTimerRef.current = setTimeout(() => setRelaunchConfirming(false), 4000);
+      return;
+    }
+    if (relaunchTimerRef.current) clearTimeout(relaunchTimerRef.current);
+    setRelaunchConfirming(false);
+    relaunchMutation.mutate();
   };
 
   const stages = useMemo(() => (data ? computeStages(data.jobs) : []), [data]);
@@ -160,7 +200,41 @@ export function PipelineRunPage() {
 
   return (
     <div>
-      <Crumb onClick={() => navigate("/")}>Back to pipelines</Crumb>
+      {/* Launch/stop actions live next to the back link (top-left) so they're a
+          short cursor hop from navigation while watching/relaunching builds. */}
+      <div className="crumb-row">
+        <Crumb onClick={() => navigate("/")}>Back to pipelines</Crumb>
+        <div className="run-head-actions">
+          {isRunning ? (
+            <Btn
+              variant="danger"
+              icon={<OctagonX size={12} />}
+              onClick={handleStopClick}
+              disabled={cancelMutation.isPending}
+            >
+              {confirming ? "confirm stop" : "stop run"}
+            </Btn>
+          ) : (
+            <>
+              <Btn variant="default" icon={<Rocket size={12} />} onClick={() => navigate(launchHref)}>
+                new launch
+              </Btn>
+              <Btn
+                variant="primary"
+                icon={<RotateCcw size={12} />}
+                onClick={handleRelaunchClick}
+                disabled={relaunchMutation.isPending}
+              >
+                {relaunchMutation.isPending
+                  ? "launching again…"
+                  : relaunchConfirming
+                    ? "confirm launch"
+                    : "launch again"}
+              </Btn>
+            </>
+          )}
+        </div>
+      </div>
 
       <div className="page-kicker" style={{ marginBottom: 8 }}>
         <span>run</span>
@@ -197,16 +271,6 @@ export function PipelineRunPage() {
           </div>
         </div>
         <div className="run-head-actions">
-          {isRunning ? (
-            <Btn
-              variant="danger"
-              icon={<OctagonX size={12} />}
-              onClick={handleStopClick}
-              disabled={cancelMutation.isPending}
-            >
-              {confirming ? "confirm stop" : "stop run"}
-            </Btn>
-          ) : null}
           <RunStatusChip state={status} />
         </div>
       </div>
