@@ -104,13 +104,36 @@ export function PipelineLogsPage() {
 
   return (
     <div>
-      <Crumb
-        onClick={() =>
-          navigate(`/project/${encodeURIComponent(projectId!)}/pipeline/${encodeURIComponent(pipelineName!)}/run/${runId}`)
-        }
-      >
-        Back to run · #{runId}
-      </Crumb>
+      {/* Launch actions live next to the back link (top-left) so they're a
+          short cursor hop from navigation while watching/relaunching builds. */}
+      <div className="crumb-row">
+        <Crumb
+          onClick={() =>
+            navigate(`/project/${encodeURIComponent(projectId!)}/pipeline/${encodeURIComponent(pipelineName!)}/run/${runId}`)
+          }
+        >
+          Back to run · #{runId}
+        </Crumb>
+        {isDone ? (
+          <div className="run-head-actions">
+            <Btn variant="default" icon={<Rocket size={12} />} onClick={() => navigate(launchHref)}>
+              new launch
+            </Btn>
+            <Btn
+              variant="primary"
+              icon={<RotateCcw size={12} />}
+              onClick={handleRelaunchClick}
+              disabled={relaunchMutation.isPending}
+            >
+              {relaunchMutation.isPending
+                ? "launching again…"
+                : relaunchConfirming
+                  ? "confirm launch"
+                  : "launch again"}
+            </Btn>
+          </div>
+        ) : null}
+      </div>
 
       <PageHead
         kicker={
@@ -142,29 +165,6 @@ export function PipelineLogsPage() {
             running in pipeline for <span className="text-fg">{pipelineName}</span> · live-tailing job output.
             Connection retries automatically.
           </>
-        }
-        action={
-          // Only offer launch actions once this run has finished — while it's
-          // still live-streaming there's nothing to re-launch yet.
-          isDone ? (
-            <div className="run-head-actions">
-              <Btn variant="default" icon={<Rocket size={12} />} onClick={() => navigate(launchHref)}>
-                new launch
-              </Btn>
-              <Btn
-                variant="primary"
-                icon={<RotateCcw size={12} />}
-                onClick={handleRelaunchClick}
-                disabled={relaunchMutation.isPending}
-              >
-                {relaunchMutation.isPending
-                  ? "launching again…"
-                  : relaunchConfirming
-                    ? "confirm launch"
-                    : "launch again"}
-              </Btn>
-            </div>
-          ) : undefined
         }
       />
 

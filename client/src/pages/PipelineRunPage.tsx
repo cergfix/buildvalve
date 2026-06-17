@@ -200,7 +200,41 @@ export function PipelineRunPage() {
 
   return (
     <div>
-      <Crumb onClick={() => navigate("/")}>Back to pipelines</Crumb>
+      {/* Launch/stop actions live next to the back link (top-left) so they're a
+          short cursor hop from navigation while watching/relaunching builds. */}
+      <div className="crumb-row">
+        <Crumb onClick={() => navigate("/")}>Back to pipelines</Crumb>
+        <div className="run-head-actions">
+          {isRunning ? (
+            <Btn
+              variant="danger"
+              icon={<OctagonX size={12} />}
+              onClick={handleStopClick}
+              disabled={cancelMutation.isPending}
+            >
+              {confirming ? "confirm stop" : "stop run"}
+            </Btn>
+          ) : (
+            <>
+              <Btn variant="default" icon={<Rocket size={12} />} onClick={() => navigate(launchHref)}>
+                new launch
+              </Btn>
+              <Btn
+                variant="primary"
+                icon={<RotateCcw size={12} />}
+                onClick={handleRelaunchClick}
+                disabled={relaunchMutation.isPending}
+              >
+                {relaunchMutation.isPending
+                  ? "launching again…"
+                  : relaunchConfirming
+                    ? "confirm launch"
+                    : "launch again"}
+              </Btn>
+            </>
+          )}
+        </div>
+      </div>
 
       <div className="page-kicker" style={{ marginBottom: 8 }}>
         <span>run</span>
@@ -237,38 +271,6 @@ export function PipelineRunPage() {
           </div>
         </div>
         <div className="run-head-actions">
-          {isRunning ? (
-            <Btn
-              variant="danger"
-              icon={<OctagonX size={12} />}
-              onClick={handleStopClick}
-              disabled={cancelMutation.isPending}
-            >
-              {confirming ? "confirm stop" : "stop run"}
-            </Btn>
-          ) : (
-            <>
-              <Btn
-                variant="default"
-                icon={<Rocket size={12} />}
-                onClick={() => navigate(launchHref)}
-              >
-                new launch
-              </Btn>
-              <Btn
-                variant="primary"
-                icon={<RotateCcw size={12} />}
-                onClick={handleRelaunchClick}
-                disabled={relaunchMutation.isPending}
-              >
-                {relaunchMutation.isPending
-                  ? "launching again…"
-                  : relaunchConfirming
-                    ? "confirm launch"
-                    : "launch again"}
-              </Btn>
-            </>
-          )}
           <RunStatusChip state={status} />
         </div>
       </div>

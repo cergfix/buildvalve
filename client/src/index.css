@@ -298,6 +298,20 @@
  * Page chrome (crumb, page-head, section-head)
  * ─────────────────────────────────────────────────────────────── */
 
+/* Back-link row that also hosts the launch/stop actions on the left, so
+   they sit a short cursor hop from navigation while relaunching builds. */
+.crumb-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.crumb-row .crumb {
+  margin-bottom: 0;
+}
+
 .crumb {
   font-size: 11px;
   color: var(--fg-mute);
