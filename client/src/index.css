@@ -892,7 +892,7 @@
 }
 
 .var-field {
-  /* Width is set per-card inline (see VariableField.cardWidthPx): a compact
+  /* Width is set per-card inline (see variable-field-width.ts): a compact
      minimum that grows to fit a long variable name. Depends only on the card's
      own key, so level-0 cards never resize when nested cards appear. */
   max-width: 100%;

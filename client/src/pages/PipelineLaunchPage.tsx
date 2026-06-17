@@ -10,7 +10,8 @@ import { PageHead } from "../components/ui/page-head";
 import { SectionHead } from "../components/ui/section-head";
 import { Chip } from "../components/ui/chip";
 import { Btn } from "../components/ui/btn";
-import { VariableField, cardWidthPx } from "../components/ui/variable-field";
+import { VariableField } from "../components/ui/variable-field";
+import { cardWidthPx } from "../components/ui/variable-field-width";
 
 /**
  * Mirror of server-side needsSatisfied — keep in sync with

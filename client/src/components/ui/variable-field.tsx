@@ -1,24 +1,9 @@
 import type { VariableConfig } from "../../../../server/src/types";
 import { TechSelect } from "./tech-select";
+import { cardWidthPx } from "./variable-field-width";
 
 type Accent = "emerald" | "amber" | "violet" | "sky";
 const ACCENT_CYCLE: Accent[] = ["emerald", "amber", "violet", "sky"];
-
-// Per-card width budget. A card has a compact MIN width (sized so the 300px
-// control has equal grey margin on both sides) and grows only to fit its own
-// (non-wrapping) key — so a long variable name targets that name. The page
-// resolves one shared width per nesting level (see PipelineLaunchPage) and
-// passes it in, so cards at the same level line up; cardWidthPx is also the
-// standalone fallback when no width is supplied.
-const MIN_CARD_PX = 404; // 300px control + 52px left gutter + matching 52px on the right
-const CHROME_PX = 70; // 52px badge gutter + 18px right padding
-const KEY_CHAR_PX = 8.6; // approx advance of an uppercase key glyph at 13px + letter-spacing
-const LOCKED_CHIP_PX = 66; // LOCKED chip width + gap, present only on locked vars
-
-export function cardWidthPx(key: string, locked: boolean): number {
-  const keyWidth = key.length * KEY_CHAR_PX + (locked ? LOCKED_CHIP_PX : 0);
-  return Math.max(MIN_CARD_PX, Math.round(CHROME_PX + keyWidth));
-}
 
 interface VariableFieldProps {
   config: VariableConfig;
